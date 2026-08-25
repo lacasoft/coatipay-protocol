@@ -209,6 +209,7 @@ abstracto.
 | [`INFRASTRUCTURE.md`](INFRASTRUCTURE.md) | Arquitectura y profundización técnica |
 | [`WHITEPAPER.md`](WHITEPAPER.md) | Visión, economía y posicionamiento |
 | [`ROADMAP.md`](ROADMAP.md) | Hoja de ruta por fases |
+| [`COMPLIANCE.md`](COMPLIANCE.md) | Posición regulatoria y no-custodia |
 | [`docs/en/`](docs/en) | English versions |
 
 ## SDKs
