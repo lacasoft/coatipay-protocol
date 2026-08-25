@@ -2,76 +2,227 @@
 
 Pagos en USDC **sin custodia** y **sin gas para quien paga**, liquidados on-chain
 en Base. Este repositorio contiene la parte abierta y verificable del sistema:
-los contratos que mueven el dinero y los tipos compartidos que describen el
-protocolo.
+los contratos que mueven el dinero y los tipos que describen el protocolo.
 
 **Apache-2.0** · sin token · sin preventa.
 
-## Qué hay aquí
+---
 
-| Carpeta | Qué es |
+## 🚀 Estado actual
+
+Desplegado en **Base Sepolia** (testnet), con código fuente **verificado en
+Basescan**. Slash al 20% real, transferencia del stake penalizado al treasury y
+guardas de dirección cero.
+
+| Contrato | Dirección |
 |---|---|
-| [`contracts/`](contracts) | Los contratos en Solidity, con Foundry |
-| [`protocol/`](protocol) | `@lacasoft/coatipay-protocol` — tipos y constantes compartidas |
+| `SettlementHub` | `0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1` |
+| `NodeRegistry` | `0x67821b659d65a58f374b11e4657653bdf25f9a07` |
+| `StakeManager` | `0x8f12bB8222fAe4dceCFd13cFdD7B2f0790207376` |
+| `DisputeResolver` | `0x1d057bF2bDE68eC4006ea15Da0c2cF35584d9dfC` |
 
-Los dos viven juntos a propósito: las constantes económicas se **generan** desde
-el contrato, y el CI falla si se desincronizan.
+**Roles, en wallets separadas** — ninguna acumula poder sobre las demás:
 
-## Cómo funciona un pago
+| Rol | Wallet | Responsabilidad |
+|---|---|---|
+| Treasury | `0x05CD…8261` | Recibe el 30% de la comisión + stake penalizado (**inmutable**) |
+| Guardian | `0xbB51…7Ddf` | Pausa de emergencia + `updateMinStake()` (rotable) |
+| Nodeit bootstrap | `0xf73e…5da4` | Deposita stake y opera el daemon |
 
-1. Quien paga firma una autorización **ERC-3009** (`receiveWithAuthorization`).
-   Es una firma, no una transacción: **no necesita ETH para gas**.
-2. Un **nodeit** recoge esa firma y la presenta al `SettlementHub`.
-3. El contrato mueve el USDC y reparte en un solo paso: el comercio cobra, el
-   nodeit gana su parte por el trabajo, y una fracción va a tesorería.
+`minStake` inicial: **40 USDC** en testnet (100 USDC en mainnet). El guardian
+puede subirlo conforme la red madura — **nunca bajarlo**, y sin afectar a
+operadores ya registrados.
 
-El dinero nunca pasa por una cuenta de CoatiPay. No hay nada que custodiar.
+**Fuente canónica de direcciones** (la que deben leer SDKs y paneles):
+[`contracts/deployments/sepolia.json`](contracts/deployments/sepolia.json).
 
-## El reparto
+> 🔜 **Auditoría externa y despliegue a mainnet pendientes.** No lo uses con
+> dinero real todavía.
 
-La comisión del protocolo es de **100 puntos base — el 1%** del pago:
+---
+
+## Qué es CoatiPay
+
+- Un **protocolo de enrutamiento de pagos** con nodeits operados por la comunidad
+- **SDKs compatibles con Stripe** para JavaScript, Python y PHP
+- Soporte nativo para **x402** — micropagos para agentes de IA
+- **USDC en Base** como capa de liquidación (Polygon y Solana en la hoja de ruta)
+- Contratos para registro de nodeits, staking y resolución de disputas
+- Documentación y soporte en **español e inglés**
+
+## Qué no es CoatiPay
+
+- **Un banco.** Los fondos van directo del pagador al comercio. CoatiPay nunca
+  custodia dinero.
+- **Una pasarela fiat.** No hay Visa, Mastercard ni transferencias. Convive con
+  las herramientas que ya usas.
+- **Un proyecto de token.** No existe un token CoatiPay. Los nodeits ganan USDC.
+  Sin especulación.
+- **Un reemplazo universal de Stripe.** Es una capa de enrutamiento USDC abierta;
+  úsala junto a lo que ya tienes.
+
+---
+
+## Cómo funciona
+
+```
+El comercio integra el SDK
+        │
+        ▼
+Se crea el PaymentIntent  →  el motor de routing elige el mejor nodeit
+        │
+        ▼
+El pagador firma una autorización ERC-3009 (una firma, no una transacción:
+        │                                    no necesita ETH para gas)
+        ▼
+El nodeit presenta la firma al SettlementHub, que liquida y reparte on-chain
+        │              (el nodeit NUNCA custodia los fondos)
+        ▼
+Se dispara el webhook  ·  la reputación del nodeit se actualiza
+```
+
+Los nodeits depositan stake en USDC para participar. Ese stake es su garantía
+económica: enrutar bien construye reputación, enrutar mal cuesta stake. **Ningún
+comité decide quién entra** — lo decide el protocolo.
+
+---
+
+## Comisión y reparto
+
+**1.0% (100 bps)** sobre cada pago liquidado. El comercio recibe el **99%**; el
+resto se reparte on-chain en la misma transacción:
 
 | Destino | Del pago total |
 |---|---|
-| Comercio | **99%** |
+| **Comercio** | **99%** |
 | Nodeit que liquida | 0.70% |
-| Tesorería | 0.30% |
+| Treasury del protocolo | 0.30% |
 
-Estos números viven **solo** en `SettlementHub.sol`. Lo que ves en TypeScript se
-genera desde ahí.
+Son $10 por cada $1,000, frente a ~$29 de una pasarela de tarjeta. Sin alta, sin
+cuota mensual, sin mínimos.
 
-## Los contratos
+Estos números viven **solo** en `SettlementHub.sol`; lo que ves en TypeScript se
+genera desde ahí y el CI falla si se desincronizan.
 
-| Contrato | Para qué |
-|---|---|
-| `SettlementHub` | Liquida el pago y reparte en una transacción |
-| `NodeRegistry` | Registro sin permisos de los nodeits |
-| `StakeManager` | Custodia el stake que respalda a cada nodeit |
-| `DisputeResolver` | Arbitraje 3-de-5 y penalización por mal comportamiento |
-
-Desplegados y **verificados en Basescan** sobre Base Sepolia. Direcciones y
-enlaces en [`contracts/deployments/sepolia.json`](contracts/deployments/sepolia.json).
-
-> ⚠️ **Todavía en testnet y sin auditar.** No lo uses con dinero real hasta que
-> haya auditoría externa publicada.
+---
 
 ## Empezar
+
+**¿Eres comercio?** No clones nada: instala un SDK.
+
+```bash
+npm install @lacasoft/coatipay-sdk    # JavaScript / TypeScript
+pip install coatipay-sdk              # Python
+composer require lacasoft/coatipay-sdk # PHP
+```
+
+```js
+import { CoatiPay } from '@lacasoft/coatipay-sdk'
+
+const relay = new CoatiPay({ apiKey: process.env.COATIPAY_SECRET_KEY })
+
+const intent = await relay.paymentIntents.create({
+  amount: 10_000_000,        // 10.00 USDC (6 decimales)
+  currency: 'usdc',
+  chain: 'base',
+  metadata: { order_id: 'order_123' },
+})
+```
+
+Y el webhook como fuente de verdad:
+
+```js
+app.post('/webhooks/coatipay', (req, res) => {
+  const event = relay.webhooks.verify(
+    req.body,                      // body CRUDO
+    req.headers['x-signature'],
+    process.env.COATIPAY_WEBHOOK_SECRET,
+  )
+  if (event.type === 'payment_intent.settled') fulfillOrder(event.data.metadata.order_id)
+  res.sendStatus(200)
+})
+```
+
+**¿Vas a auditar o extender el protocolo?**
 
 ```bash
 git clone --recurse-submodules https://github.com/lacasoft/coatipay-protocol
 cd coatipay-protocol/contracts && forge build && forge test
 ```
 
-Las dependencias de Foundry son submódulos de git — de ahí el
-`--recurse-submodules`.
+Las dependencias de Foundry son submódulos — de ahí el `--recurse-submodules`.
+
+---
+
+## x402 — pagos para agentes de IA
+
+```js
+app.addHook('preHandler', relay.x402.middleware({
+  price: 300_000,   // 0.30 USDC por request
+  currency: 'usdc',
+  chain: 'base',
+}))
+```
+
+Cualquier cliente que hable x402 —incluidos agentes de IA vía MCP— puede pagar y
+consumir tu endpoint de forma autónoma. Las pasarelas tradicionales no sostienen
+pagos tan pequeños: su comisión mínima los hace inviables.
+
+---
+
+## Correr un nodeit
+
+El **registro es sin permisos**: `NodeRegistry.register()` no tiene whitelist ni
+aprobación, y cualquier dirección con stake suficiente puede registrarse. El
+stake, las reglas de slashing y la reputación viven en contratos públicos y
+auditables, en este mismo repositorio.
+
+> **Estado real, sin adornos:** durante la Fase 1 los nodeits los opera el equipo
+> core. El daemon aún no se publica porque autentica contra la API con un secreto
+> **compartido por toda la red**: un operador externo recibiría la misma
+> credencial que el resto, sin identidad propia. Abrirlo requiere antes migrar esa
+> autenticación a **firma por operador verificada contra `NodeRegistry`** — la
+> identidad on-chain ya existe. Cuando eso esté, el daemon se publica y esta
+> sección pasa a ser una guía de instalación real.
+
+Quien opere un nodeit gana el **70% de la comisión** (0.7% de cada pago que
+enruta), en USDC y on-chain.
+
+---
+
+## Terminología
+
+El protocolo define una red de **nodos**. **nodeit** es la implementación de
+referencia. Cualquier daemon compatible puede registrarse como nodo; el nuestro
+se llama nodeit. En este README digo "nodeit" porque hablo de la implementación
+concreta; en [`PROTOCOL.md`](PROTOCOL.md) e
+[`INFRASTRUCTURE.md`](INFRASTRUCTURE.md) digo "nodo" porque describen el concepto
+abstracto.
+
+---
+
+## Documentación
+
+| Documento | Qué cubre |
+|---|---|
+| [`PROTOCOL.md`](PROTOCOL.md) | Especificación del protocolo |
+| [`INFRASTRUCTURE.md`](INFRASTRUCTURE.md) | Arquitectura y profundización técnica |
+| [`WHITEPAPER.md`](WHITEPAPER.md) | Visión, economía y posicionamiento |
+| [`ROADMAP.md`](ROADMAP.md) | Hoja de ruta por fases |
+| [`docs/en/`](docs/en) | English versions |
 
 ## SDKs
-
-Para integrar pagos no necesitas este repositorio, sino un SDK:
 
 - [JavaScript / TypeScript](https://github.com/lacasoft/coatipay-js-sdk)
 - [Python](https://github.com/lacasoft/coatipay-python-sdk)
 - [PHP](https://github.com/lacasoft/coatipay-php-sdk)
+
+## Mercados iniciales
+
+**México** es el mercado de lanzamiento — transición digital activa y demanda
+real de alternativas a las comisiones tradicionales. **España** es el segundo,
+como puente natural del corredor Europa–LATAM. Argentina, Colombia y Chile en
+Fase 2.
 
 ## Contribuir y seguridad
 
@@ -79,3 +230,7 @@ Lee [CONTRIBUTING.md](CONTRIBUTING.md). Para vulnerabilidades **no abras un
 issue**: escribe a **security@coatipay.com** ([SECURITY.md](SECURITY.md)).
 
 Issues y PRs en **español o inglés**, como prefieras.
+
+## Licencia
+
+Apache-2.0 — ver [LICENSE](LICENSE).
