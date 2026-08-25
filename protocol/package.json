@@ -1,0 +1,45 @@
+{
+  "name": "@lacasoft/coatipay-protocol",
+  "version": "0.1.0",
+  "description": "Shared types, interfaces, constants, and chain helpers for the CoatiPay protocol",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "payments",
+    "web3",
+    "usdc",
+    "base",
+    "x402",
+    "coatipay",
+    "erc-3009"
+  ],
+  "license": "Apache-2.0",
+  "homepage": "https://coatipay.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lacasoft/coatipay-protocol",
+    "directory": "protocol"
+  },
+  "bugs": "https://github.com/lacasoft/coatipay-protocol/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "generate:fee-constants": "tsx scripts/generate-fee-constants.ts",
+    "check:fee-constants": "tsx scripts/generate-fee-constants.ts --check"
+  },
+  "dependencies": {
+    "viem": "^2.55.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3"
+  }
+}

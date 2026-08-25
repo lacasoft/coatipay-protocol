@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  protocol:
+    name: Protocol (TypeScript)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: protocol
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install
+
+      # Las constantes de reparto viven SOLO en SettlementHub.sol y se generan
+      # desde ahí. Este paso falla si alguien las editó a mano en TypeScript:
+      # es la garantía de que no existan dos fuentes de verdad.
+      - name: Fee constants in sync with SettlementHub.sol
+        run: npm run check:fee-constants
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+  contracts:
+    name: Contracts (Foundry)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      # forge-std y openzeppelin-contracts son submódulos git bajo contracts/lib.
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Fijado a una release concreta. Pasar `stable` (el default de la
+          # acción) hace que foundryup consulte la API de GitHub para resolver
+          # el último tag, y eso devuelve 403 al topar con el rate-limit en los
+          # runners compartidos. Con versión explícita va directo al asset de la
+          # release: sin llamada a la API, sin rate limit. Súbela solo cuando
+          # quieras actualizar Foundry a propósito.
+          version: v1.7.1
+
+      - name: Build
+        run: forge build
+
+      - name: Test
+        run: forge test -vvv
+
+      - name: Format check
+        run: forge fmt --check

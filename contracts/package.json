@@ -1,0 +1,13 @@
+{
+  "name": "@lacasoft/coatipay-contracts",
+  "version": "0.0.1",
+  "private": true,
+  "description": "CoatiPay smart contracts — NodeRegistry, StakeManager, DisputeResolver",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test -vvv",
+    "lint": "forge fmt --check",
+    "clean": "forge clean",
+    "deploy:testnet": "forge script script/Deploy.s.sol --rpc-url $BASE_SEPOLIA_RPC_URL --broadcast"
+  }
+}

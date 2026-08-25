@@ -1,0 +1,111 @@
+{
+  "chain": "base-sepolia",
+  "chainId": 84532,
+  "deployedAt": "2026-05-15T03:36:36Z",
+  "deployBlock": 41540675,
+  "deployer": "0x063250650155518BE28989Ec41c597dC1d1eF05C",
+  "contracts": {
+    "stakeManager": "0x8f12bB8222fAe4dceCFd13cFdD7B2f0790207376",
+    "disputeResolver": "0x1d057bF2bDE68eC4006ea15Da0c2cF35584d9dfC",
+    "nodeRegistry": "0x67821b659d65a58f374b11e4657653bdf25f9a07",
+    "settlementHub": "0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1"
+  },
+  "parameters": {
+    "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    "treasury": "0x05CDED242AFC9D7e60eC3049bD8bDccbbA078261",
+    "guardian": "0xbB514Eca8f39d0A3B8092B323282304709d17Ddf",
+    "arbiters": [
+      "0xa6b6FB0B17BeAA2419a9F7f87049BBF47AF7f838",
+      "0xD32Ec6dda5dB526a588Be9C07B0770DD0EfB9a7D",
+      "0x6e11b024FF5839290b541c49cd073067Bc45c470"
+    ],
+    "minStakeUsdc": "40000000",
+    "minStakeUsdcHuman": "40 USDC",
+    "slashPercentage": 20,
+    "protocolFeeBps": 100,
+    "operatorShareBps": 70,
+    "treasuryShareBps": 30,
+    "maxBatchSize": 50
+  },
+  "verification": {
+    "basescan": {
+      "stakeManager": "https://sepolia.basescan.org/address/0x8f12bB8222fAe4dceCFd13cFdD7B2f0790207376#code",
+      "disputeResolver": "https://sepolia.basescan.org/address/0x1d057bF2bDE68eC4006ea15Da0c2cF35584d9dfC#code",
+      "nodeRegistry": "https://sepolia.basescan.org/address/0x67821b659d65a58f374b11e4657653bdf25f9a07#code",
+      "settlementHub": "https://sepolia.basescan.org/address/0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1#code"
+    },
+    "sourceCodeVerified": true
+  },
+  "phase": "B5",
+  "phaseChanges": [
+    "ADR-002: fee structure recalibrated 50 bps → 100 bps. SettlementHub carries PROTOCOL_FEE_BPS=100, OPERATOR_SHARE_BPS=70, TREASURY_SHARE_BPS=30.",
+    "ADR-003: SettlementHub deployed for the FIRST time. Adds trustless on-chain payment splitting (99% merchant / 0.7% operator / 0.3% treasury) with three pay paths: payIntent (approve+pay), payIntentWithPermit (EIP-2612), payIntentWithAuthorization (ERC-3009 gasless) + payIntentBatchWithAuthorization (MAX_BATCH_SIZE=50, x402 micropayments).",
+    "Deploy.s.sol updated: now deploys 4 contracts. SettlementHub receives the real guardian directly in its constructor (no transferGuardian dance — it has no init step requiring temporary deployer authority).",
+    "ERC-1271 smart-wallet support (PR #148 + #149): SettlementHub REDEPLOYED STANDALONE (forge create, NOT Deploy.s.sol — the other 3 contracts + the nodeit stake are untouched) to switch ERC-3009 settlement from receiveWithAuthorization(...,v,r,s) to the (...,bytes signature) overload, which USDC's SignatureChecker validates for BOTH EOA ECDSA and ERC-1271 contract wallets (Coinbase Smart Wallet). Old SettlementHub: 0x083182ea2b3ef0946f69a29c33d3597cec6043b3 (replaced; intents registered there are stranded — drained via expiry). New: 0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1. Same constructor (usdc/treasury/guardian), same fee constants. ERC-6492 (counterfactual smart wallets) is Phase 2."
+  ],
+  "roleSeparation": {
+    "note": "Deployer, treasury, guardian, and node operator are FOUR DISTINCT wallets. Deployer paid gas only and has no post-deploy authority. Deploy.s.sol reverts if any two of them collide. Treasury is stored on StakeManager (immutable, used at slash time), DisputeResolver (immutable, symmetry) and SettlementHub (immutable, receives the 0.3% protocol share). Guardian on all four contracts.",
+    "deployer": "0x063250650155518BE28989Ec41c597dC1d1eF05C",
+    "treasury": "0x05CDED242AFC9D7e60eC3049bD8bDccbbA078261",
+    "guardian": "0xbB514Eca8f39d0A3B8092B323282304709d17Ddf",
+    "nodeOperator (first bootstrap)": "0xf73e2E5a4493d8a4C28e6f88c14a396C82395da4"
+  },
+  "previousDeploys": [
+    {
+      "deployedAt": "2026-05-11T20:00:00Z",
+      "deployBlock": 41377656,
+      "reason": "Pre-SettlementHub deploy (PR #61 era). Orphaned by Phase B5 redeploy: SettlementHub didn't exist yet, and the fee structure was 50 bps (ADR-002 raised it to 100 bps). Phase B5 redeploys all four contracts together so the auditor sees a single coherent deploy.",
+      "contracts": {
+        "stakeManager": "0xD365a4c68cf46A7Ef13A9186cC28b8B85117E198",
+        "disputeResolver": "0xc37f4122e6fa912002bAffc9F9702b0F2F663361",
+        "nodeRegistry": "0x6038b863Afd693df6F58E1E5e74b6c9393367cff"
+      }
+    },
+    {
+      "deployedAt": "2026-05-09T18:23:03Z",
+      "deployBlock": 41291274,
+      "reason": "Tanda C contract fixes deploy (PR #44). Orphaned by depositFor refactor (PR #61) — StakeManager.initialize signature changed and NodeRegistry constructor lost the usdc param, making the on-chain ABI incompatible with the new code.",
+      "contracts": {
+        "stakeManager": "0x790ed3ee74413294fb159eaad4cd7f209b43d120",
+        "disputeResolver": "0xd0b7386a2538df6691889A5023eBC06EfB84fc53",
+        "nodeRegistry": "0x7006209E9E73a10A3674F8B15dA4Eb447bFF8eCC"
+      }
+    },
+    {
+      "deployedAt": "2026-04-21T22:36:28Z",
+      "deployBlock": 40522124,
+      "reason": "First deploy with role separation (PR #20). Orphaned after tanda C contract bug fixes (PR #44) — required redeploy because StakeManager constructor now takes treasury (slash transfers there) and DisputeResolver._executeSlash now slashes 20% instead of 100%.",
+      "contracts": {
+        "stakeManager": "0xFf4e68652BC8C6b8de18a79C4D2FDDe0c9C9F517",
+        "disputeResolver": "0xAAB6E368767707e562Fb09dB2432F9a691B9915a",
+        "nodeRegistry": "0x2dFdF6151d6BF0156D28976F23823d3f1f9CB106"
+      }
+    },
+    {
+      "deployedAt": "2026-04-19T08:10:35Z",
+      "deployBlock": 40408950,
+      "reason": "Redeploy with adjustable minStake=40 USDC (PR #15). Orphaned after role-separation redeploy — deployer + treasury + guardian were the same wallet (audit finding C1).",
+      "contracts": {
+        "stakeManager": "0xBbcE040401e4612337799bABCeE7860a9A0fcA84",
+        "disputeResolver": "0xb8d6D150D2567644D404b6Bd46c81cc749c0926D",
+        "nodeRegistry": "0x15e742142CB23E6f5c1B20aAE13CDd49E6b68565"
+      }
+    },
+    {
+      "deployedAt": "2026-04-18T21:19:58Z",
+      "deployBlock": 40395831,
+      "reason": "Initial deploy with hardcoded MIN_STAKE=100 USDC. Orphaned after adjustable-minStake refactor (PR #14).",
+      "contracts": {
+        "stakeManager": "0x0028Aca3ee2eab0fB4058E8cC982EbD301321ff4",
+        "disputeResolver": "0xC31Db942F06E991bB5C8B5E16f19E9e574518b04",
+        "nodeRegistry": "0x7bdD07a40dA09cc0FF9c09Aa89Ae63d8346Fec0e"
+      }
+    }
+  ],
+  "orphanedStake": {
+    "note": "The bootstrap nodeit had 40 USDC staked in the Phase B5-orphaned StakeManager (0xD365...E198). Recoverable via requestWithdrawal() + 7-day timelock + executeWithdrawal(). The nodeit re-stakes 40 USDC fresh into the new StakeManager (0x8f12...7376) as part of Phase B5 re-registration.",
+    "orphanedStakeManager": "0xD365a4c68cf46A7Ef13A9186cC28b8B85117E198",
+    "amountUsdc": "40000000"
+  },
+  "notes": "Phase B5 testnet deployment (ADR-002 + ADR-003). FOUR contracts now: StakeManager, NodeRegistry, DisputeResolver, SettlementHub. SettlementHub is the trustless on-chain settlement layer — replaces the prior 'operator-side daemon forwards funds' trust model with atomic on-chain splitting. Fee structure: 100 bps total (0.7% nodeit / 0.3% treasury). ERC-3009 gasless payments supported (payer signs off-chain, nodeit submits + pays gas). Adjustable minStake=40 USDC, FOUR separated wallets. Operator registration is a 3-tx flow: usdc.approve, stakeManager.deposit, nodeRegistry.register. External audit pending before mainnet — see audits/SCOPE.md (~2,758 LoC in scope)."
+}

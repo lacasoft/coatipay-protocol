@@ -1,0 +1,19 @@
+# Entorno — NUNCA commitear valores reales
+.env
+.env.*
+!.env.example
+
+# Sistema / editor
+.DS_Store
+*.log
+.idea/
+.vscode/
+
+# Node (paquete protocol/)
+node_modules/
+dist/
+
+# Foundry (contracts/)
+contracts/out/
+contracts/cache/
+contracts/broadcast/
