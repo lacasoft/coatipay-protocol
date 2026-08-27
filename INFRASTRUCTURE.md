@@ -919,60 +919,53 @@ Los reportes de auditoría serán publicados en `/audits` en el repositorio. La 
 | Stake de USDC | 100 USDC (mainnet) · 40 USDC (testnet) | 1,000+ USDC |
 | RPC de Base | Público (rate limited) | Dedicado (Alchemy, QuickNode) + backups vía `BASE_RPC_FALLBACK_URLS` |
 
-### 13.2 Estado actual: quién puede correr un nodeit
+### 13.2 Correr un nodeit
 
-> **Sé claro sobre esto:** hoy la red **no es todavía permissionless en la
-> práctica**, aunque el registro on-chain sí lo sea. Durante la Fase 1 los
-> nodeits los opera el equipo core.
+**La red es permissionless, y el daemon es público:**
+[`coatipay-node`](https://github.com/lacasoft/coatipay-node).
 
-Lo que **ya es abierto y verificable por cualquiera**:
+No hay whitelist, ni alta que aprobar, ni secreto que pedirnos:
 
-- El **registro on-chain** (`NodeRegistry.register`) no tiene whitelist ni
-  aprobación: cualquier dirección con el stake suficiente puede registrarse.
-- El **stake** (`StakeManager.deposit`) y las reglas de slashing viven en
-  contratos públicos y auditables, en este mismo repositorio.
+- El **registro on-chain** (`NodeRegistry.register`) acepta a cualquier dirección
+  con stake suficiente.
+- El **stake** y las reglas de slashing viven en contratos públicos y auditables,
+  en este repositorio.
 - La **reputación** se computa a partir de datos on-chain.
+- La **autenticación** contra el API es por **firma del operador**: el daemon
+  firma cada llamada con la llave con la que se registró, y el API recupera esa
+  dirección y la comprueba contra `NodeRegistry`. Un operador solo puede actuar
+  como sí mismo, porque no puede firmar con la llave de otro.
 
-Lo que **todavía no**: el daemon autentica sus llamadas al API con un
-`NODE_HMAC_SECRET` **compartido y único para toda la red**. Un operador externo
-necesitaría que se lo entregáramos, y recibiría la misma credencial que el
-resto de los nodos — sin identidad propia en ese canal. Por eso el daemon aún
-no se publica: abrirlo hoy anunciaría una apertura que la arquitectura no
-sostiene.
-
-**Qué falta para abrirlo de verdad.** La identidad por operador ya existe
-on-chain: `NodeRegistry` guarda la dirección de cada uno. El paso pendiente es
-que el daemon **firme sus llamadas con la llave del operador** y que el API
-verifique esa firma contra el registro, en lugar del secreto compartido. Cuando
-eso esté, el daemon se publica como repositorio propio y esta sección pasa a ser
-una guía de instalación real.
-
-Registrarse on-chain, mientras tanto, ya se puede hacer y es verificable:
+Para recibir trabajo hay que estar **registrado y activo** **y** mantener el
+**stake bonded por encima del mínimo**. Las dos condiciones importan:
+`NodeRegistry` solo comprueba el stake **al registrarse**, así que un nodo puede
+seguir `active` después de retirarlo — y sin stake no hay garantía económica que
+perder si se comporta mal.
 
 ```bash
 # 1. Depositar el stake — register() NO transfiere USDC por ti
-#    USDC.approve(StakeManager, 100_000_000)
-#    StakeManager.deposit(100_000_000)
+#    USDC.approve(StakeManager, 40_000_000)
+#    StakeManager.deposit(40_000_000)
 
 # 2. Registrar el endpoint — verifica que ya tengas >= minStake depositado
 #    NodeRegistry.register("https://tu-nodo.example.com")
+
+# 3. Levantar el daemon (ver el README de coatipay-node)
+#    docker run -d --env-file .env ghcr.io/lacasoft/node:latest
 ```
 
-### 13.3 Rotación de key HMAC
+### 13.3 Rotar la identidad del operador
 
-```bash
-# 1. Generate new secret
-NEW_SECRET=$(openssl rand -hex 32)
+No hay secreto compartido que rotar. El daemon firma con
+`NODE_OPERATOR_PRIVATE_KEY`, que **es** su identidad on-chain.
 
-# 2. Update your node config (zero-downtime: both keys valid during rotation)
-NODE_HMAC_SECRET=$NEW_SECRET
+Cambiarla no es rotar una credencial: es cambiar de nodo. El camino pasa por el
+registro —dar de alta la dirección nueva con su propio stake, dejar que empiece
+a tomar trabajo, y retirar la anterior— y hasta que la nueva esté registrada y
+con stake, el API no le dará liquidaciones.
 
-# 3. Coordinar la rotación con la capa de API
-# The API layer will start signing with the new key
-# Old requests (up to 5 minutes old) will still validate during transition
-
-# 4. Restart node with new secret
-```
+Protege esa llave como protegerías la wallet que respalda tu stake, porque es
+exactamente eso.
 
 ### 13.4 Recomendaciones de monitoreo
 

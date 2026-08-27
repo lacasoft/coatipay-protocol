@@ -919,49 +919,51 @@ Audit reports will be published at `/audits` in the repository. The community sh
 | USDC stake | 100 USDC (mainnet) · 40 USDC (testnet) | 1,000+ USDC |
 | Base RPC | Public (rate limited) | Dedicated (Alchemy, QuickNode) |
 
-### 13.2 Who can run a nodeit today
+### 13.2 Running a nodeit
 
-> **Be clear about this:** the network is **not yet permissionless in practice**,
-> even though the on-chain registry is. During Phase 1 the core team operates the
-> nodeits.
+**The network is permissionless and the daemon is public:**
+[`coatipay-node`](https://github.com/lacasoft/coatipay-node).
 
-Already open and verifiable by anyone: on-chain registration
-(`NodeRegistry.register` has no whitelist), the stake and slashing rules, and
-reputation computed from on-chain data.
+No whitelist, no approval, no secret to ask us for:
 
-Not yet: the daemon authenticates to the API with a `NODE_HMAC_SECRET` that is
-**shared across the whole network**. An external operator would need us to hand
-it over, and would get the same credential as everyone else — no per-operator
-identity on that channel. That is why the daemon is not published yet.
+- **On-chain registration** (`NodeRegistry.register`) accepts any address with
+  enough stake.
+- **Stake** and slashing rules live in public, auditable contracts in this repo.
+- **Reputation** is computed from on-chain data.
+- **Authentication** against the API is by **operator signature**: the daemon
+  signs every call with the key it registered with, and the API recovers that
+  address and checks it against `NodeRegistry`. An operator can only act as
+  itself, because it cannot sign with someone else's key.
 
-**What it takes to open it.** Per-operator identity already exists on-chain in
-`NodeRegistry`. The pending step is for the daemon to **sign its calls with the
-operator key** and for the API to verify that signature against the registry,
-replacing the shared secret. Once that lands, the daemon ships as its own public
-repository.
-
-```bash
-# Registering on-chain already works and is verifiable:
-#   USDC.approve(StakeManager, 100_000_000)
-#   StakeManager.deposit(100_000_000)
-#   NodeRegistry.register("https://your-node.example.com")
-```
-
-### 13.3 HMAC key rotation
+To receive work you must be **registered and active** **and** keep your **bonded
+stake above the minimum**. Both matter: `NodeRegistry` only checks stake **at
+registration time**, so a node can stay `active` after withdrawing — and with no
+stake there is no economic guarantee behind its behaviour.
 
 ```bash
-# 1. Generate new secret
-NEW_SECRET=$(openssl rand -hex 32)
+# 1. Deposit the stake — register() does NOT pull USDC for you
+#    USDC.approve(StakeManager, 40_000_000)
+#    StakeManager.deposit(40_000_000)
 
-# 2. Update your node config (zero-downtime: both keys valid during rotation)
-NODE_HMAC_SECRET=$NEW_SECRET
+# 2. Register the endpoint — it verifies you already hold >= minStake
+#    NodeRegistry.register("https://your-node.example.com")
 
-# 3. Coordinate the rotation with the API layer
-# The API layer will start signing with the new key
-# Old requests (up to 5 minutes old) will still validate during transition
-
-# 4. Restart node with new secret
+# 3. Start the daemon (see the coatipay-node README)
+#    docker run -d --env-file .env ghcr.io/lacasoft/node:latest
 ```
+
+### 13.3 Rotating the operator identity
+
+There is no shared secret to rotate. The daemon signs with
+`NODE_OPERATOR_PRIVATE_KEY`, which **is** its on-chain identity.
+
+Changing it is not a credential rotation — it is switching nodes. The path goes
+through the registry: register the new address with its own stake, let it start
+taking work, then withdraw the old one. Until the new address is registered and
+staked, the API will not hand it settlements.
+
+Guard that key the way you would guard the wallet backing your stake, because
+that is exactly what it is.
 
 ### 13.4 Monitoring recommendations
 

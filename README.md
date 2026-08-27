@@ -177,13 +177,16 @@ aprobación, y cualquier dirección con stake suficiente puede registrarse. El
 stake, las reglas de slashing y la reputación viven en contratos públicos y
 auditables, en este mismo repositorio.
 
-> **Estado real, sin adornos:** durante la Fase 1 los nodeits los opera el equipo
-> core. El daemon aún no se publica porque autentica contra la API con un secreto
-> **compartido por toda la red**: un operador externo recibiría la misma
-> credencial que el resto, sin identidad propia. Abrirlo requiere antes migrar esa
-> autenticación a **firma por operador verificada contra `NodeRegistry`** — la
-> identidad on-chain ya existe. Cuando eso esté, el daemon se publica y esta
-> sección pasa a ser una guía de instalación real.
+**El daemon es público:**
+[`coatipay-node`](https://github.com/lacasoft/coatipay-node). Se autentica
+firmando cada llamada con la llave del operador —la misma con la que te
+registraste—, y el API recupera esa dirección y la comprueba contra el registro.
+No hay secreto que pedir ni alta que aprobar: tu identidad se demuestra, no se
+declara.
+
+Para que el API te dé trabajo necesitas estar **registrado y activo** y mantener
+el **stake por encima del mínimo**. Si retiras el stake dejas de recibir
+liquidaciones aunque sigas registrado: sin nada que perder no hay garantía.
 
 Quien opere un nodeit gana el **70% de la comisión** (0.7% de cada pago que
 enruta), en USDC y on-chain.
@@ -212,11 +215,17 @@ abstracto.
 | [`COMPLIANCE.md`](COMPLIANCE.md) | Posición regulatoria y no-custodia |
 | [`docs/en/`](docs/en) | English versions |
 
-## SDKs
+## Repositorios
+
+**Para integrar pagos** — instala un SDK, no clones nada:
 
 - [JavaScript / TypeScript](https://github.com/lacasoft/coatipay-js-sdk)
 - [Python](https://github.com/lacasoft/coatipay-python-sdk)
 - [PHP](https://github.com/lacasoft/coatipay-php-sdk)
+
+**Para operar infraestructura:**
+
+- [`coatipay-node`](https://github.com/lacasoft/coatipay-node) — el daemon del nodeit
 
 ## Mercados iniciales
 
