@@ -10,11 +10,12 @@ _Abril 2026_
 
 ## Resumen Ejecutivo
 
-CoatiPay es una red de enrutamiento de pagos de código abierto. Cualquiera puede operar un nodeit, cualquier comercio puede recibir pagos en USDC con cero comisiones, y los desarrolladores tienen una experiencia similar a Stripe: SDK limpios, webhooks, payment intents.
+CoatiPay es una red de enrutamiento de pagos de código abierto. Cualquiera puede operar un nodeit, cualquier comercio puede recibir pagos en USDC sin custodia ni intermediarios, y los desarrolladores tienen una experiencia similar a Stripe: SDK limpios, webhooks, payment intents.
 
 Lo que ofrecemos:
 
-- **Red comunitaria:** 1.0% por transacción (vs 2.9%+ de Stripe)
+- **Red comunitaria:** comisión muy por debajo del 2.9%+ de Stripe, fijada on-chain
+  en el contrato y verificable antes de integrarse
 - **Soporte x402 nativo:** micropagos gasless para agentes de IA (USDC-native, sin necesidad de ETH); económicamente viables desde ~$0.30/llamada en Base — el sub-centavo requiere netting off-chain (hoja de ruta)
 - **SDK en TS, Python, PHP:** la misma DX que ya conoces (JS en npm y Python en PyPI publicados; PHP pendiente en Packagist)
 
@@ -256,8 +257,8 @@ Distribución del 1.0%:
 > sino el piso económico: con gas de Base (~$0.0036 por intent) cada liquidación on-chain tiene
 > un break-even de **~$0.30/llamada**. El **sub-centavo** ($0.001) solo se vuelve rentable con
 > **netting off-chain** (acumular muchas llamadas de un mismo payer y liquidar la suma en una
-> sola tx) — está en la hoja de ruta, no implementado hoy. Ver ADR-002
-> (`audits/adr/002-fee-structure-and-gas-abstraction.md`) para análisis económico completo.
+> sola tx) — está en la hoja de ruta, no implementado hoy. Ver [ADR-002](audits/adr/002-fee-structure-and-gas-abstraction.md) para el análisis
+> económico completo.
 
 ### 4.2 Economía del nodeit
 
@@ -300,17 +301,18 @@ Break-even al 0.7%: ~124 pagos/día con avg $5 (vs ~217/día al 0.4% del split a
 
 ### 4.3 Comparación real
 
-Comercio que procesa $50,000/mes:
+Un comercio que procesa $50,000/mes paga a Stripe ~$1,480 mensuales (~$17,760 al año)
+con su tarifa publicada de 2.9% + $0.30 por transacción.
 
-| Plataforma | Comisión mensual | Ahorro anual vs Stripe |
-|-----------|-----------------|----------------------|
-| Stripe | ~$1,480 | — |
-| CoatiPay (red) | $500 | $11,760 |
-| CoatiPay (auto) | $0 + $30 VPS | $17,400 |
+La comisión de CoatiPay es una constante del contrato desplegado
+([`SettlementHub.sol`](contracts/src/SettlementHub.sol)), no una tarifa comercial:
+cualquiera la verifica on-chain antes de integrarse, y el reparto entre nodeit y
+treasury está fijado en el mismo sitio. En pagos típicos de LATAM el ahorro frente a
+Stripe está en el orden del 65-90%.
 
-> Nota: aunque el fee subió de 50 a 100 bps (ADR-002), CoatiPay sigue ahorrándole al comercio
-> ~65-90% vs Stripe en pagos típicos LATAM, mientras que el split 70/30 hace viable la economía
-> del nodeit y acelera 3× el path al treasury auto-financiable.
+> Nota: el fee subió de 50 a 100 bps en [ADR-002](audits/adr/002-fee-structure-and-gas-abstraction.md).
+> El split 70/30 hace viable la economía del nodeit y acelera 3× el path al treasury
+> auto-financiable.
 
 ### 4.4 Treasury
 
@@ -375,7 +377,8 @@ Los reportes se publicarán en el repositorio público.
 ### 6.2 Lo que no haremos
 
 - **No habrá token RELAY.** No ICO, no IDO, no "community sale". Los operadores ganan USDC, no tokens especulativos.
-- **No habrá fees ocultos.** El 1.0% es público, auditado, on-chain.
+- **No habrá fees ocultos.** La comisión es una constante pública del contrato,
+  auditada y verificable on-chain. No hay cargos fuera de ella.
 - **No venderemos datos.** CoatiPay no monetiza datos de transacciones.
 
 ---
@@ -420,8 +423,8 @@ Seamos honestos:
 - ✅ Verificación on-chain de pagos via viem
 - ✅ Settlement gasless ERC-3009 vía `SettlementHub.sol` (split atómico on-chain)
 - ✅ CI/CD con GitHub Actions
-- ✅ Auditoría interna de seguridad (ver [`docs/audits/2026-04-15-internal-snapshot.md`](docs/audits/2026-04-15-internal-snapshot.md))
-- ✅ Deploy en Base Sepolia — versión actual 2026-05-09 con fixes de tanda C (slash 20% real, treasury transfer, guards de zero-address). Ver [`packages/contracts/deployments/sepolia.json`](packages/contracts/deployments/sepolia.json).
+- ✅ Auditoría interna de seguridad (ver auditoría interna, registro no público)
+- ✅ Deploy en Base Sepolia — versión actual 2026-05-09 con fixes de tanda C (slash 20% real, treasury transfer, guards de zero-address). Ver [`contracts/deployments/sepolia.json`](contracts/deployments/sepolia.json).
 - ✅ Primer bootstrap nodeit registrado on-chain y operativo en producción
 - ✅ Repositorio público en GitHub bajo `lacasoft/coatipay-protocol`
 - 🔄 **Capital recaudado para auditoría externa** ($20-50k estimado para firma; $5-15k para auditor independiente)
