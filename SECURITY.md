@@ -31,7 +31,7 @@ fallo siga vivo, publicarlo pone en riesgo fondos de terceros.
 ## Alcance
 
 **Dentro:** los contratos de `contracts/src/` — `SettlementHub`, `NodeRegistry`,
-`StakeManager`, `DisputeResolver` — y los tipos y constantes de `protocol/`.
+`StakeManager` — y los tipos y constantes de `protocol/`.
 
 **Fuera:** la infraestructura que opera CoatiPay (API, dashboard, nodos) no vive
 en este repositorio. Si el fallo está ahí, escríbenos igual a la misma dirección.

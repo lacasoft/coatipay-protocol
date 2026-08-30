@@ -9,7 +9,6 @@ export type PaymentIntentStatus =
   | 'failed'
   | 'expired'
   | 'cancelled'
-  | 'disputed'
 
 export interface PaymentIntent {
   id: string

@@ -46,8 +46,8 @@ Esa es la oportunidad que persigue CoatiPay. La ventana para construir infraestr
 
 ### Hitos Técnicos
 
-- [x] Contratos inteligentes: `NodeRegistry.sol`, `StakeManager.sol`, `DisputeResolver.sol`, `SettlementHub.sol` (desplegado)
-- [x] Suite de tests Foundry: 197 tests (172 unitarios + 25 de invariantes/fuzz), todos en verde, en los contratos desplegados
+- [x] Contratos inteligentes: `NodeRegistry.sol`, `StakeManager.sol`, `SettlementHub.sol` (desplegado)
+- [x] Suite de tests Foundry: 140 tests (124 unitarios + 16 de invariantes/fuzz), todos en verde, en los contratos desplegados
 - [x] Script de deploy: `Deploy.s.sol` listo para Base Sepolia
 - [x] Daemon del nodeit: API HTTP con Fastify, rutas estructuradas
 - [x] API REST: payment intents, webhooks, rutas x402 estructuradas
@@ -72,7 +72,7 @@ Esa es la oportunidad que persigue CoatiPay. La ventana para construir infraestr
 - [ ] Capital recaudado para auditoría externa de smart contracts
   - Estimado de costo: $20-50k USD (firmas como Spearbit/Cantina/OpenZeppelin) o $5-15k (auditor independiente)
   - Vías a explorar: grants del ecosistema Base, RetroPGF de Optimism, ronda angel pequeña, autofunding
-- [ ] Auditoría externa contratada — `NodeRegistry.sol`, `StakeManager.sol`, `DisputeResolver.sol`, `SettlementHub.sol`, `Pausable.sol` (~1,356 LOC Solidity, 197 tests Foundry)
+- [ ] Auditoría externa contratada — `NodeRegistry.sol`, `StakeManager.sol`, `SettlementHub.sol`, `Pausable.sol` (~990 LOC Solidity, 140 tests Foundry)
 - [ ] Findings de la auditoría corregidos y verificados con re-audit
 - [ ] Deploy a **Base mainnet** con `minStake = 100 USDC` (piso anti-Sybil documentado en el whitepaper)
 - [ ] Bootstrap nodeit operativo en mainnet (mismo daemon, contratos mainnet)
@@ -100,7 +100,6 @@ Esa es la oportunidad que persigue CoatiPay. La ventana para construir infraestr
 - [ ] SDK PHP: `lacasoft/coatipay-sdk` en Packagist
 - [ ] Dashboard de comercio: Next.js + shadcn/ui
 - [ ] Plugin de WooCommerce (crítico para la adopción de comercios mexicanos)
-- [ ] UI de resolución de disputas para comercios
 
 ### Hitos de Mercado
 

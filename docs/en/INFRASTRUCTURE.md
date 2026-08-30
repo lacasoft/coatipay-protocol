@@ -44,7 +44,7 @@ CoatiPay is a five-layer payment routing system. Each layer has a single, well-d
 │  Node discovery · Score computation · Intent assignment  │
 ├──────────────────────────────────────────────────────────┤
 │  Protocol Layer (on-chain)                               │
-│  NodeRegistry · StakeManager · DisputeResolver · SettlementHub │
+│  NodeRegistry · StakeManager · SettlementHub             │
 ├──────────────────────────────────────────────────────────┤
 │  Settlement Layer                                        │
 │  Base (USDC) — live · Polygon / Solana — roadmap        │
@@ -85,9 +85,8 @@ lacasoft/coatipay-protocol        🌐 public   ← you are here
 │   │   ├── SettlementHub.sol        settles and splits
 │   │   ├── NodeRegistry.sol         nodeit registry
 │   │   ├── StakeManager.sol         stake custody
-│   │   ├── DisputeResolver.sol      3-of-5 arbitration
 │   │   └── Pausable.sol
-│   ├── test/                        197 tests (unit, fuzz, invariants)
+│   ├── test/                        140 tests (unit, fuzz, invariants)
 │   └── deployments/sepolia.json     canonical addresses
 └── protocol/                        @lacasoft/coatipay-protocol
     └── src/
@@ -159,17 +158,24 @@ Lightning was **considered and dropped** (out of scope): it will not be implemen
 
 ## 4. Smart Contract Layer
 
-Four non-upgradeable contracts on Base define all on-chain protocol rules: `NodeRegistry`, `StakeManager`, `DisputeResolver`, and `SettlementHub` (all extend a shared `Pausable` base).
+Three non-upgradeable contracts on Base define all on-chain protocol rules: `NodeRegistry`, `StakeManager`, and `SettlementHub` (all extend a shared `Pausable` base).
 
 ### Deployment status
 
-The first Phase-B5 testnet deployment was completed on **Base Sepolia (chainId 84532)**. All four contracts are live and source-verified on Basescan. The canonical source of truth for deployed addresses, block, commit hash, and constructor parameters is `contracts/deployments/sepolia.json` — that JSON is what the API, node daemon, and any integrator read. Mainnet remains blocked by the pending external audit.
+The first Phase-B5 testnet deployment was completed on **Base Sepolia (chainId 84532)**, source-verified on Basescan. The canonical source of truth for deployed addresses, block, commit hash, and constructor parameters is `contracts/deployments/sepolia.json` — that JSON is what the API, node daemon, and any integrator read. Mainnet remains blocked by the pending external audit.
+
+> **ADR-004 forces a redeploy.** The contract set in this repository is no longer
+> the one live on Sepolia today: `registerIntent` changed signature and
+> `StakeManager` lost the economic penalty, and that logic lives in
+> non-upgradeable bytecode. The rollout is a clean cut — new contracts first,
+> then API and daemon pointed at the new addresses in the same window — not a
+> gradual transition.
 
 ### Design principles
 
 - **Non-upgradeable:** No proxy patterns and no fund-moving admin keys — no one can move funds or rewrite state. There **is** an emergency pause (the shared `Pausable` base) controlled by a guardian (a 3-of-5 multisig, not a single key), which gates registration and new-write operations but does not stop in-flight settlements; the guardian is held by the Foundation (no migration to on-chain governance is committed). What is audited is what runs. If a bug requires a fix, the correct response is a new deployment with an RFC-approved migration path.
 - **Minimal surface:** Each contract does exactly one thing. No cross-concerns.
-- **USDC-denominated:** All stake, fees, and slashing are in USDC. No protocol token.
+- **USDC-denominated:** All stake and fees are in USDC. No protocol token.
 - **Event-driven:** All state changes emit events. The off-chain routing engine and node daemon rely on event logs, not polling.
 
 ---
@@ -217,10 +223,12 @@ NodeDeactivated(address indexed operator)
 
 ### 4.2 StakeManager.sol
 
-**Responsibility:** USDC stake custody, withdrawal timelock, and slashing.
+**Responsibility:** USDC stake custody and withdrawal timelock.
 
 **State:**
 ```solidity
+uint256 public constant WITHDRAWAL_TIMELOCK = 7 days;
+
 mapping(address => StakeInfo) private _stakes;
 
 struct StakeInfo {
@@ -230,61 +238,40 @@ struct StakeInfo {
 }
 ```
 
+**What the stake is — and what it is not.**
+
+The stake is a bond and an anti-Sybil barrier: it accredits a nodeit to enter
+the registry and commits its own capital. It is **not confiscable** (ADR-004):
+the contract has no function that moves stake to a third party. USDC enters
+from the nodeit's address and can only leave towards that same address.
+
 **The withdrawal timelock:**
 
-The 7-day timelock between `requestWithdrawal()` and `executeWithdrawal()` is the primary protection against node exit scams. Without it, a malicious node could:
-1. Accept a large payment intent
-2. Fail to route it properly
-3. Immediately withdraw all stake before the merchant opens a dispute
+The 7-day timelock between `requestWithdrawal()` and `executeWithdrawal()` is
+what turns the stake into a capital commitment rather than a one-block deposit.
+Without it the anti-Sybil barrier would be cosmetic: the same bag of USDC could
+be deposited, accredit an identity, be withdrawn, and start over in the next
+transaction, as many times as wanted and at no real cost.
 
-With the timelock, the merchant has 7 days to open a dispute after settlement. The dispute window and the withdrawal timelock are intentionally equal — they create a closed system where a node cannot withdraw before a dispute can be resolved.
-
-**Slashing mechanics:**
-
-When `DisputeResolver` calls `slash(operator, amount, disputeId)`:
-1. The function checks `staked + pendingWithdrawal` as the total slashable amount
-2. It reduces `staked` first, then `pendingWithdrawal` if staked is insufficient
-3. The slash amount is capped at the total available — slashing can never create negative balances
-4. Slashed funds remain in the contract and are tracked for treasury withdrawal (Phase 2 feature)
+The timelock also makes the exit public. `requestWithdrawal()` deducts the
+amount from `staked` immediately and emits
+`WithdrawalRequested(operator, amount, unlockAt)`, so a nodeit on its way out
+drops below the minimum instantly and visibly on-chain — the API sees it in
+`getStakeInfo()` and stops assigning it settlements seven days before it can
+touch the money.
 
 **Access control:**
-- `depositFor()` — only callable by `nodeRegistry` address (set at deploy, immutable)
-- `slash()` — only callable by `disputeResolver` address (set at deploy, immutable)
-- `deposit()`, `requestWithdrawal()`, `executeWithdrawal()` — callable by any registered operator
+- `deposit()`, `requestWithdrawal()`, `executeWithdrawal()` — callable by any
+  address, and they always act on `msg.sender`. There is no arbitrary `from`
+  parameter, so none of the three can touch someone else's stake
+- There is no `depositFor()`: `NodeRegistry` does not proxy USDC transfers — it
+  verifies already-deposited stake via `getStakeInfo()` (least-privilege)
+- The guardian can only **pause** (all three functions are `whenNotPaused`).
+  Not even while paused can it move anyone's stake
 
 ---
 
-### 4.3 DisputeResolver.sol
-
-**Responsibility:** Dispute adjudication and stake slashing decisions.
-
-**Lifecycle:**
-
-```
-Open → NodeResponded → Resolved (MerchantWins or NodeWins)
-Open → (48h passes without response) → Expired → Slashed
-```
-
-**Voting mechanics (Phase 1):**
-
-Disputes are resolved by a 3-of-5 multisig. Each arbiter calls `vote(disputeId, outcome)`. When 3 votes for the same outcome accumulate, `_resolve()` is triggered automatically. This avoids requiring a separate execution step.
-
-Key design choices:
-- **Concurrent voting:** All 5 arbiters can vote in any order. The threshold triggers resolution automatically.
-- **No vote changes:** Once an arbiter votes, their vote is immutable (checked via `arbiterVotes[disputeId][msg.sender] != None`).
-- **Expired = MerchantWins:** If a node fails to respond within 48 hours, `expireDispute()` can be called by anyone. An expired dispute triggers slashing without arbiter votes. This prevents nodes from ignoring disputes to avoid slashing.
-
-**Evidence storage:**
-
-Evidence is stored as IPFS CIDs (content-addressed hashes), not as on-chain data. This keeps contract storage costs low while making evidence publicly auditable — anyone can retrieve the IPFS content for any dispute.
-
-**On the arbiter set:**
-
-The multisig arbiters are managed by the Foundation; there is no committed replacement by on-chain governance. If `vote()` logic ever needs to change, it would be via a new deployment with an RFC-approved migration.
-
----
-
-### 4.4 SettlementHub.sol
+### 4.3 SettlementHub.sol
 
 **Responsibility:** Trustless on-chain settlement and atomic fee split. This is the contract that **moves the funds** — it pulls the payer's USDC and splits it on-chain (merchant + node operator + treasury) in a single transaction, replacing the prior "operator-side daemon forwards funds" trust model.
 
@@ -297,6 +284,45 @@ uint16  public constant TREASURY_SHARE_BPS = 30;   // 0.3% to treasury
 uint256 public constant MAX_BATCH_SIZE     = 50;   // batch cap (x402)
 ```
 
+**Signed intent registration (ADR-004).** `registerIntent(IntentRegistration)`
+only accepts a registration carrying an EIP-712 signature from `intentSigner`
+over `(intentId, merchant, operator, amount, expiresAt)`:
+
+```solidity
+bytes32 public constant REGISTER_INTENT_TYPEHASH = keccak256(
+    "RegisterIntent(bytes32 intentId,address merchant,address operator,uint256 amount,uint64 expiresAt)"
+);
+```
+
+The nodeit still submits the transaction and pays the gas, but it cannot alter
+the content: if it swaps the merchant address — or the amount, or the operator
+that collects — the signature stops recovering to `intentSigner` and the
+contract reverts with `InvalidIntentSignature`. `registerIntentBatch` requires
+the signature **per element**, so the batch cannot be a shortcut to register
+without authorization. The registration travels as a struct
+(`IntentRegistration`) instead of parallel arrays, which removes the
+mismatched-length class of bug at the root.
+
+The EIP-712 domain separator (`CoatiPay SettlementHub`, version `1`) is
+recomputed on every call instead of cached, so a chain fork automatically
+invalidates the original chain's signatures.
+
+`intentSigner` is **immutable on purpose**: if the guardian could rotate it, it
+would be able to bind in-flight payments to a merchant of its choosing — which
+is exactly the fund-moving power this design denies it. If that key is
+compromised, the response is to pause and redeploy. This is a real
+centralization, and it is declared as such in §17.
+
+**Binding the authorization to its intent (ADR-004).** The payer's ERC-3009
+signature covers `from`, `to`, `value`, `validAfter`, `validBefore`, and
+`nonce` — it does not cover the intent; and since USDC requires
+`msg.sender == to`, the signed `to` is always the hub and can never name the
+merchant. That is why the contract requires `auth.nonce == auth.intentId` and
+reverts with `AuthorizationNotBoundToIntent` otherwise: each signature is locked
+into one specific intent, which already has an owner because `registerIntent`
+rejects duplicate identifiers. Desirable side effect: USDC's nonce map also
+guarantees a single settlement per intent, independently of the intent's status.
+
 **Three pay paths** — the gasless ERC-3009 path is the Phase 1 path:
 - `payIntent` — approve + pay
 - `payIntentWithPermit` — EIP-2612
@@ -304,18 +330,28 @@ uint256 public constant MAX_BATCH_SIZE     = 50;   // batch cap (x402)
 
 `IntentSettled` is the **source of truth** for settlement — the off-chain event watcher observes it and marks the intent `settled`. `SettlementHub` uses `nonReentrant` on every pay path and follows Checks-Effects-Interactions.
 
-### 4.5 Contract deployment order
+### 4.4 Contract deployment order
 
-Due to circular dependencies (Registry needs StakeManager, StakeManager needs Registry address), contracts are deployed in this order:
+There are no circular dependencies: the three contracts are independent and
+receive the **real guardian in their constructor**, so the deployer never holds
+authority over the protocol at any point. ADR-004 removed the intermediate phase
+with the deployer as temporary guardian, which only existed because of
+`StakeManager.initialize()`.
 
 ```
-1. Deploy StakeManager (with deployer address as placeholder for both registry and resolver)
-2. Deploy DisputeResolver (with real StakeManager address)
-3. Deploy NodeRegistry (with real StakeManager address)
-4. Deploy SettlementHub (with usdc, treasury, and the real guardian in its constructor)
+1. StakeManager  (usdc, guardian)
+2. NodeRegistry  (stakeManager, guardian, initial minStake)
+3. SettlementHub (usdc, treasury, guardian, intentSigner)
 ```
 
-The placeholder addresses in StakeManager are never called maliciously — the deployer wallet has no special permissions in the contract logic. This is a known Phase 1 limitation with a documented migration path to a factory pattern in Phase 2.
+`NodeRegistry` is not wired inside `StakeManager`: nodeits deposit directly with
+`stakeManager.deposit()` and the registry reads the stake via
+`stakeManager.getStakeInfo(operator)`.
+
+`script/Deploy.s.sol` aborts if the deployer equals the treasury or the
+guardian, or if guardian and treasury are the same wallet — these are roles that
+must never collapse into a single key. On completion it verifies every immutable
+on-chain (usdc, treasury, guardian, `intentSigner`) and the fee constants.
 
 ---
 
@@ -328,10 +364,9 @@ When multiple nodeits are registered on-chain, the API layer will select a nodei
 ### 5.1 Node score formula
 
 ```
-Score = (uptime_weight   × 0.30)
-      + (speed_weight    × 0.30)
-      + (stake_weight    × 0.20)
-      + (disputes_weight × 0.20)
+Score = (uptime_weight × 0.40)
+      + (speed_weight  × 0.40)
+      + (stake_weight  × 0.20)
 
 Where:
   uptime_weight   = node.uptime_30d  (0.0–1.0, from /info endpoint)
@@ -344,13 +379,17 @@ Where:
                    TARGET_STAKE = 10,000 USDC = 10,000,000,000 micro-units
                    A node with 100 USDC (minimum) has stake_weight = 0.01
                    A node with 10,000+ USDC has stake_weight = 1.0
-
-  disputes_weight = disputes_won / max(disputes_total, 1)
-                   New nodes with 0 disputes get disputes_weight = 1.0
-                   (benefit of the doubt, corrected by uptime and stake)
 ```
 
-**Interpretation:** The score weights uptime and speed equally at 30% each because reliability and performance are the primary merchant concerns. Stake (20%) reflects skin in the game — a node willing to stake more is economically aligned with good behavior. Dispute history (20%) is a trust signal that grows over time.
+**Interpretation:** The score has three terms. It used to have four: the fourth
+was a conduct record adjudicated by third parties, it weighed 0.20, and ADR-004
+removed it along with the system that fed it. **That weight is split evenly
+between uptime and speed** (0.30 → 0.40 each), and the split is not a whim: with
+the economic penalty gone, the only misbehaviour left to a nodeit is **refusing
+to settle or taking too long**, which is exactly what those two terms measure.
+The trust signal stops being declared by a third party and becomes something the
+network observes for itself. Stake keeps its 0.20 as capital commitment and
+anti-Sybil barrier, even though it is no longer confiscable.
 
 ### 5.2 Hard filters (applied before scoring)
 
@@ -363,7 +402,6 @@ Nodes that fail any hard filter are excluded from routing regardless of score:
 | Chain support | Does not list requested chain in `/health` |
 | Capacity | `/health` returns `capacity < 0.1` |
 | Latency | Round-trip to `/health` > 5 seconds |
-| Dispute lock | Has open dispute in `Open` status |
 | Merchant whitelist | Not in merchant's `node_whitelist` (if set) |
 | Merchant blacklist | In merchant's `node_blacklist` (if set) |
 | Minimum stake | Below merchant's `min_stake` preference |
@@ -459,7 +497,6 @@ api_keys            -- hashed API keys with prefix metadata
 payment_intents     -- full intent lifecycle with status machine
 webhook_endpoints   -- registered webhook URLs with event subscriptions
 webhook_deliveries  -- delivery attempts, retry state, response codes
-disputes            -- dispute lifecycle with IPFS evidence CIDs
 x402_payments_used  -- tx_hash uniqueness table for replay protection
 ```
 
@@ -558,12 +595,13 @@ There is no HMAC authentication between the API and the nodeit: the nodeit consu
 
 CoatiPay settles payments with the **ERC-3009 (`ReceiveWithAuthorization`)** standard, not with per-intent derived payment addresses.
 
-The payer signs an EIP-712 authorization off-chain — a structure including `from`, `to`, `value`, `validAfter`, `validBefore`, and a unique `nonce` — using their own wallet. That signature authorizes `SettlementHub.sol` to pull exactly that amount of USDC from the payer when the contract presents it on-chain.
+The payer signs an EIP-712 authorization off-chain — a structure including `from`, `to`, `value`, `validAfter`, `validBefore`, and a `nonce` — using their own wallet. That signature authorizes `SettlementHub.sol` to pull exactly that amount of USDC from the payer when the contract presents it on-chain.
 
 This entirely eliminates the need for a unique payment address per intent and HD wallet derivation:
 
 - There is no per-intent derived address — the payer pays from their own wallet.
 - The authorization's `value` fixes the exact amount; the contract rejects any mismatch. It is not possible for a payer to pay the wrong amount and claim a different intent.
+- The `nonce` **is the intent identifier** (`nonce == intentId`, ADR-004): it binds the signature to that specific intent, and the contract rejects any authorization that does not match. Without that binding, whoever submits the transaction could apply the payer's signature to an intent of their own (see §4.3).
 - The `nonce` is consumed on-chain on first use, which prevents authorization replay.
 - The payment is **gasless for the payer**: the nodeit submits the transaction and pays the gas.
 
@@ -709,7 +747,7 @@ relay.x402.middleware({ price: 50000 }) // $0.05  → routed
 [Payer signs the ERC-3009 authorization]
   The payer signs an EIP-712 ReceiveWithAuthorization
   authorization off-chain with their own wallet
-  (from, to, value, validAfter, validBefore, nonce)
+  (from, to, value, validAfter, validBefore, nonce = intentId)
   The SDK sends the signature to the API
         │
         ▼
@@ -765,10 +803,6 @@ created → cancelled
 created → failed
   Triggered: the on-chain settlement did not complete
   Condition: the ERC-3009 authorization was rejected by the contract
-
-settled → disputed
-  Triggered: merchant calls dispute endpoint
-  Condition: within 7 days of settled_at
 ```
 
 **These transitions are exhaustive and exclusive.** No transition exists outside this table. Any code that attempts an unlisted transition must be treated as a bug.
@@ -846,10 +880,15 @@ Treasury allocation is decided by the Foundation; the balance is publicly visibl
 **Malicious node operator**
 
 *Threat:* Settle an intent and divert the funds to an address other than the merchant's.
-*Mitigation:* The split is executed by `SettlementHub.sol` in an atomic on-chain transaction — the nodeit does not control the destination of the funds. The merchant address is fixed in the intent (it comes from the API layer) and the contract sends 99% to that wallet. The nodeit only submits the transaction and pays the gas; it cannot touch or redirect the USDC.
+*Mitigation:* The split is executed by `SettlementHub.sol` in an atomic on-chain transaction — the nodeit does not control the destination of the funds. The merchant address is fixed in the intent and **authenticated**: the contract only registers intents signed by `intentSigner` (§4.3), so the nodeit submitting the transaction cannot swap in its own. And the payer's ERC-3009 authorization is only valid for the intent whose identifier is its nonce, so it cannot be applied to someone else's intent either. The nodeit only submits the transaction and pays the gas; it cannot touch or redirect the USDC.
 
 *Threat:* Accept work and then go offline without settling the intent.
-*Mitigation:* 7-day stake withdrawal timelock. Merchant can open a dispute within 7 days. Unresponded disputes trigger automatic slashing via `expireDispute()`.
+*Mitigation:* There is nothing to capture: until the intent settles, the USDC stays in the payer's wallet. A nodeit that does not settle **penalizes itself** — it does not earn its 0.7% — and the intent expires at `expires_at`; anyone can close it with `cancelExpired()` and the merchant issues a new one. The 7-day withdrawal timelock additionally makes the nodeit's exit visible on-chain a week in advance (§4.2).
+
+**`intentSigner` key compromise**
+
+*Threat:* Whoever controls that key can sign registrations binding a new intent to any merchant they choose.
+*Mitigation:* This is a **bounded and declared** risk, not an eliminated one (ADR-004): the platform is authoritative over the intent→merchant binding, and that is now explicit in the contract instead of an implicit fact of routing. What the key **cannot** do is move funds on its own: it cannot redirect already-registered intents (`registerIntent` rejects duplicate identifiers) nor touch settled ones. `intentSigner` is immutable, so on compromise the response is to **pause and redeploy** — the pause already exists as the emergency lever.
 
 **Sybil attack (many fake nodes)**
 
@@ -887,15 +926,16 @@ Treasury allocation is decided by the Foundation; the balance is publicly visibl
 
 These invariants must be preserved across all contract upgrades (deployments) and can be used by auditors to verify correctness:
 
-1. `StakeManager.totalStaked() >= sum of all slashable amounts` — the contract never creates negative balances
-2. `NodeRegistry.getActiveNodes()` never contains an address with `active = false`
-3. `DisputeResolver`: a dispute can only be resolved once (checked via `status != Resolved && status != Expired`)
-4. `StakeManager`: a withdrawal cannot be executed before `unlockAt` (timelock is strictly enforced)
-5. `DisputeResolver`: an arbiter cannot vote twice on the same dispute
+1. `StakeManager`: **exact USDC conservation** — the contract's balance always equals the sum of every operator's `staked + pendingWithdrawal`, and what was deposited equals that sum plus what was withdrawn. With the economic penalty gone (ADR-004), the stake has no possible leak to the treasury or to any third party: the invariant goes from an inequality to an **exact equality**
+2. `StakeManager`: a withdrawal cannot be executed before `unlockAt` (timelock is strictly enforced)
+3. `NodeRegistry.getActiveNodes()` never contains an address with `active = false`
+4. `SettlementHub`: no intent is registered without a valid `intentSigner` signature, and an `intentId` cannot be registered twice
+5. `SettlementHub`: an ERC-3009 authorization can only be applied to the intent whose identifier is its nonce, and each intent settles at most once
+6. `SettlementHub`: the split adds up exactly to the settled amount (99% / 0.7% / 0.3%) and the contract holds no USDC between transactions
 
 ### 12.4 Audit requirements
 
-All four contracts (`NodeRegistry`, `StakeManager`, `DisputeResolver`, `SettlementHub`, plus the shared `Pausable` base) require full security audits before Base mainnet deployment:
+All three contracts (`NodeRegistry`, `StakeManager`, and `SettlementHub`, plus the shared `Pausable` base) require full security audits before Base mainnet deployment:
 - Static analysis (Slither, Mythril)
 - Manual review by at least two independent security researchers
 - Fuzzing with forge test --fuzz-runs 10000
@@ -928,7 +968,7 @@ No whitelist, no approval, no secret to ask us for:
 
 - **On-chain registration** (`NodeRegistry.register`) accepts any address with
   enough stake.
-- **Stake** and slashing rules live in public, auditable contracts in this repo.
+- **Stake** and its rules live in public, auditable contracts in this repo.
 - **Reputation** is computed from on-chain data.
 - **Authentication** against the API is by **operator signature**: the daemon
   signs every call with the key it registered with, and the API recovers that
@@ -937,8 +977,10 @@ No whitelist, no approval, no secret to ask us for:
 
 To receive work you must be **registered and active** **and** keep your **bonded
 stake above the minimum**. Both matter: `NodeRegistry` only checks stake **at
-registration time**, so a node can stay `active` after withdrawing — and with no
-stake there is no economic guarantee behind its behaviour.
+registration time**, so a node can stay `active` after withdrawing. That is why
+the API re-checks the stake live before handing out work: a nodeit below the
+minimum stops receiving settlements even if the registry still lists it as
+active.
 
 ```bash
 # 1. Deposit the stake — register() does NOT pull USDC for you
@@ -973,23 +1015,11 @@ Metrics to track:
 - `intents_claimed` — ERC-3009 authorizations claimed from the API queue
 - `intents_settled` — intents successfully confirmed
 - `intents_failed` — intents that could not be settled
-- `disputes_open` — current open disputes (should be 0)
 - `stake_balance` — current USDC stake (alert if approaching minimum)
 
 Recommended alerting:
 - `uptime_pct < 0.99` — investigate immediately (score impact)
-- `disputes_open > 0` — respond within 48 hours or lose the dispute
 - `stake_balance < 200_000_000` (200 USDC) — top up stake
-
-### 13.5 Evidence preparation for disputes
-
-If a merchant opens a dispute against your node, you have 48 hours to respond with counter-evidence. Maintain logs of:
-- All intent assignments (intent_id, amount, merchant_address, assigned_at)
-- All on-chain transactions (tx_hash, block_number, settled_at, amount)
-- Node uptime logs
-- Any error logs around the disputed time window
-
-Package this as a JSON file and upload to IPFS. The IPFS CID is your counter-evidence.
 
 ---
 
@@ -1040,9 +1070,6 @@ app.post('/webhooks/coatipay', express.raw({ type: 'application/json' }), (req, 
     case 'payment_intent.failed':
       await notifyCustomer(event.data.metadata.orderId, 'payment_failed')
       break
-    case 'dispute.opened':
-      await alertMerchantTeam(event.data)
-      break
   }
 
   // Respond quickly — process async if needed
@@ -1082,14 +1109,14 @@ The reference Base Sepolia deploy is already live (2026-04-18) — the canonical
 # 2. Configure deployment .env
 DEPLOYER_PRIVATE_KEY=0x...
 USDC_ADDRESS=0x036CbD53842c5426634e7929541eC2318f3dCF7e  # Base Sepolia USDC
-TREASURY_ADDRESS=0x...
-ARBITER_1=0x...
-ARBITER_2=0x...
-ARBITER_3=0x...
+TREASURY_ADDRESS=0x...         # receives the 0.3%; wallet distinct from the deployer
+GUARDIAN_ADDRESS=0x...         # pause and setMinStake; distinct from deployer and treasury
+INTENT_SIGNER_ADDRESS=0x...    # signs intent registrations (ADR-004); immutable after deploy
+MIN_STAKE_USDC_UNITS=40000000  # optional — defaults to 40 USDC
 BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
 
 # 3. Deploy contracts
-cd packages/contracts
+cd contracts
 forge script script/Deploy.s.sol \
   --rpc-url $BASE_SEPOLIA_RPC_URL \
   --broadcast \
@@ -1098,7 +1125,7 @@ forge script script/Deploy.s.sol \
 # 4. Copy output contract addresses to root .env
 NODE_REGISTRY_ADDRESS=0x...
 STAKE_MANAGER_ADDRESS=0x...
-DISPUTE_RESOLVER_ADDRESS=0x...
+SETTLEMENT_HUB_ADDRESS=0x...
 
 # 5. Start API and Node with testnet config
 ```
@@ -1110,7 +1137,7 @@ For production deployment, additional considerations:
 **Node daemon:**
 - Run behind nginx with TLS (Let's Encrypt)
 - Use a dedicated Base RPC (Alchemy or QuickNode)
-- Configure alerts for downtime and dispute events
+- Configure alerts for downtime, settlement failures, and low gas balance
 - Store HMAC secret in a secrets manager (not in .env file)
 
 **API layer:**
@@ -1121,7 +1148,7 @@ For production deployment, additional considerations:
 
 **Monitoring:**
 - Health check endpoint monitored externally (e.g., UptimeRobot)
-- Alerting on settlement failures and dispute events
+- Alerting on settlement failures and on stake below the minimum
 - PostgreSQL slow query log enabled
 
 ---
@@ -1183,16 +1210,15 @@ These are the properties that CoatiPay guarantees to all participants. They must
 ### For merchants
 
 1. Funds received in the merchant wallet are yours — no party can recall or freeze them after settlement
-2. The dispute window is always exactly 7 days after settlement — this cannot be shortened by any node or arbiter
+2. The address that collects the 99% is authenticated: `SettlementHub` only registers an intent if it comes signed by `intentSigner`, so the nodeit submitting the transaction cannot swap in its own
 3. Your API key is never transmitted in logs or error messages — only the key prefix is stored for identification
 4. Webhook signatures are computed over the exact payload — any modification invalidates the signature
 
 ### For node operators
 
-1. Stake can only be slashed by `DisputeResolver` — no other contract or address can reduce your stake
+1. Your stake is **not confiscable**: `StakeManager` has no function that moves it to a third party — it enters from your address and can only leave towards your address
 2. Withdrawal timelock is exactly 7 days — this cannot be extended or shortened by any party
-3. A dispute that is not responded to in 48 hours results in automatic slashing — you cannot avoid this by going offline
-4. Your routing capacity is respected — if you return `capacity < 0.1`, the routing engine will not assign you new intents
+3. Your routing capacity is respected — if you return `capacity < 0.1`, the routing engine will not assign you new intents
 
 ### For payers
 
@@ -1203,8 +1229,9 @@ These are the properties that CoatiPay guarantees to all participants. They must
 
 1. There is no admin key that can move funds, upgrade, or rewrite the state of the deployed contracts. The one privileged action is an **emergency pause** (the `Pausable` base) held by a 3-of-5 guardian multisig — it gates registration and new writes but cannot move funds, stop in-flight settlements, or change the rules
 2. The fee split (70/30 node/treasury, 100 bps total — see ADR-002) is encoded in the protocol (`SettlementHub.sol` constants) and cannot be changed without a new deployment
-3. The minimum stake (`minStake`) is a state variable adjustable by the guardian via `NodeRegistry.updateMinStake()`, but the contract **rejects decreases** — increase-only. This lets the network raise the anti-Sybil floor as it matures (initial value: 100 USDC on mainnet, 40 USDC on Sepolia testnet) without invalidating already-registered operators.
+3. The minimum stake (`minStake`) is a state variable adjustable by the guardian via `NodeRegistry.setMinStake()`, but the contract **rejects decreases** — increase-only. This lets the network raise the anti-Sybil floor as it matures (initial value: 100 USDC on mainnet, 40 USDC on Sepolia testnet) without invalidating already-registered operators.
 4. All node registrations are permissionless — no whitelist committee can block a node from joining
+5. There is one centralization, and it is declared: `intentSigner`, the key whose signature authorizes registering intents (ADR-004). It binds each intent to its merchant and **cannot move funds** — it can neither redirect already-registered intents nor touch settled ones. It is immutable on purpose, so not even the guardian can rotate it: on compromise, the response is to pause and redeploy
 
 ---
 

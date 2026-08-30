@@ -21,8 +21,6 @@ export type CoatiPayErrorCode =
   | 'chain_verification_failed' // on-chain verification could not confirm transfer
   | 'insufficient_payment' // tx confirmed but amount below required
   | 'x402_replay' // tx_hash already used for a previous x402 settlement
-  // Disputes
-  | 'dispute_window_closed'
 
 export interface CoatiPayError {
   code: CoatiPayErrorCode

@@ -20,10 +20,9 @@ integrators to look up current deployed addresses.
   "deployedAt": "2026-04-17T23:45:00Z",
   "deployer": "0x...",
   "contracts": {
-    "stakeManager":    "0x...",
-    "disputeResolver": "0x...",
-    "nodeRegistry":    "0x...",
-    "settlementHub":   "0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1"
+    "stakeManager":  "0x...",
+    "nodeRegistry":  "0x...",
+    "settlementHub": "0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1"
   },
   "usdc":     "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
   "treasury": "0x..."

@@ -11,21 +11,20 @@ los contratos que mueven el dinero y los tipos que describen el protocolo.
 ## 🚀 Estado actual
 
 Desplegado en **Base Sepolia** (testnet), con código fuente **verificado en
-Basescan**. Slash al 20% real, transferencia del stake penalizado al treasury y
-guardas de dirección cero.
+Basescan**, guardas de dirección cero y los roles repartidos en wallets
+separadas.
 
 | Contrato | Dirección |
 |---|---|
 | `SettlementHub` | `0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1` |
 | `NodeRegistry` | `0x67821b659d65a58f374b11e4657653bdf25f9a07` |
 | `StakeManager` | `0x8f12bB8222fAe4dceCFd13cFdD7B2f0790207376` |
-| `DisputeResolver` | `0x1d057bF2bDE68eC4006ea15Da0c2cF35584d9dfC` |
 
 **Roles, en wallets separadas** — ninguna acumula poder sobre las demás:
 
 | Rol | Wallet | Responsabilidad |
 |---|---|---|
-| Treasury | `0x05CD…8261` | Recibe el 30% de la comisión + stake penalizado (**inmutable**) |
+| Treasury | `0x05CD…8261` | Recibe el 30% de la comisión (**inmutable**) |
 | Guardian | `0xbB51…7Ddf` | Pausa de emergencia + `updateMinStake()` (rotable) |
 | Nodeit bootstrap | `0xf73e…5da4` | Deposita stake y opera el daemon |
 
@@ -47,7 +46,7 @@ operadores ya registrados.
 - **SDKs compatibles con Stripe** para JavaScript, Python y PHP
 - Soporte nativo para **x402** — micropagos para agentes de IA
 - **USDC en Base** como capa de liquidación (Polygon y Solana en la hoja de ruta)
-- Contratos para registro de nodeits, staking y resolución de disputas
+- Contratos para el registro de nodeits, el staking y la liquidación on-chain
 - Documentación y soporte en **español e inglés**
 
 ## Qué no es CoatiPay
@@ -174,7 +173,7 @@ pagos tan pequeños: su comisión mínima los hace inviables.
 
 El **registro es sin permisos**: `NodeRegistry.register()` no tiene whitelist ni
 aprobación, y cualquier dirección con stake suficiente puede registrarse. El
-stake, las reglas de slashing y la reputación viven en contratos públicos y
+registro, el stake y las reglas de liquidación viven en contratos públicos y
 auditables, en este mismo repositorio.
 
 **El daemon es público:**
@@ -186,7 +185,7 @@ declara.
 
 Para que el API te dé trabajo necesitas estar **registrado y activo** y mantener
 el **stake por encima del mínimo**. Si retiras el stake dejas de recibir
-liquidaciones aunque sigas registrado: sin nada que perder no hay garantía.
+liquidaciones aunque sigas registrado: el stake es la credencial que te habilita.
 
 Quien opere un nodeit gana el **70% de la comisión** (0.7% de cada pago que
 enruta), en USDC y on-chain.

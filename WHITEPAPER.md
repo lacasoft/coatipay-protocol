@@ -125,7 +125,6 @@ No hay token. No hay mining. Solo trabajo real por pago real.
 │  Contratos on-chain (Base)              │
 │  - NodeRegistry                         │
 │  - StakeManager                         │
-│  - DisputeResolver                      │
 │  - SettlementHub                        │
 ├─────────────────────────────────────────┤
 │  Settlement (USDC en Base)              │
@@ -134,14 +133,13 @@ No hay token. No hay mining. Solo trabajo real por pago real.
 
 ### 3.2 Contratos inteligentes
 
-Cuatro contratos en Base:
+Tres contratos en Base:
 
 - **NodeRegistry:** registro público de nodeits, cualquiera se registra con stake ≥ `minStake` (100 USDC mainnet · 40 USDC testnet; ajustable por guardian, solo incrementos)
-- **StakeManager:** depósitos, retiros con timelock 7 días, slashing por disputas
-- **DisputeResolver:** si un nodeit no responde en 48 horas, pierde stake automático. Árbitros gestionados por multisig 3-de-5
+- **StakeManager:** depósitos y retiros con timelock de 7 días. El stake no es confiscable: acredita al nodeit en el registro y funciona como barrera anti-Sybil, no como fianza que alguien pueda ejecutar
 - **SettlementHub:** el contrato que mueve los fondos — jala el USDC del payer y lo splittea atómicamente on-chain (99% comercio / 0.7% nodeit / 0.3% treasury) en una sola transacción; corazón del settlement gasless ERC-3009
 
-Los cuatro contratos incluyen:
+Los tres contratos incluyen:
 - Guardian con capacidad de pausa de emergencia (ver sección 5.2)
 - Eventos para indexación off-chain
 - Custom errors para optimización de gas
@@ -185,11 +183,12 @@ El nodeit nunca intercepta los fondos: el USDC se mueve del cliente al comercio 
 Con un solo bootstrap nodeit, hoy no hay selección entre candidatos: cada intent va a la cola de la API y lo liquida ese nodeit. Cuando la red abra a registro permissionless en Fase 2, cada nodeit tendrá un score público y la API repartirá el tráfico según ese score:
 
 ```
-Score = (uptime_30d × 0.30)
-      + (velocidad_settlement × 0.30)
+Score = (uptime_30d × 0.40)
+      + (velocidad_settlement × 0.40)
       + (stake × 0.20)
-      + (ratio_disputes_ganados × 0.20)
 ```
+
+El score se apoya únicamente en señales que la red mide por sí misma en cada pago: el uptime y la velocidad de settlement pesan un 40% cada uno, y el stake conserva un 20% como barrera anti-Sybil. La reputación no depende de ningún juicio humano ni de intermediarios que decidan quién tiene razón.
 
 Un nodeit con mal comportamiento perderá tráfico orgánicamente — sin que nadie lo expulse. Un nodeit con excelente historial ganará más tráfico y más fees. El motor de routing multi-node (descubrimiento de nodeits desde `NodeRegistry.sol`, scoring por reputación, racing paralelo) es una feature de Fase 2.
 
@@ -333,7 +332,7 @@ El treasury lo gestiona la Fundación; su balance es públicamente visible on-ch
 | Amenaza | Mitigación |
 |---------|------------|
 | Nodeit roba fondos | Imposible — los fondos nunca pasan por nodeits |
-| Nodeit cobra sin liquidar | Disputa + slashing del stake |
+| Nodeit cobra sin liquidar | Imposible — el split es atómico: si no liquida, no cobra |
 | Ataque Sybil | Stake mínimo 100 USDC |
 | Exit scam | Timelock 7 días para retirar stake |
 | Replay de pagos x402 | Redis `SET NX` + hash de tx en DB |
@@ -343,7 +342,7 @@ El treasury lo gestiona la Fundación; su balance es públicamente visible on-ch
 ### 5.2 Mecanismos de protección
 
 - **Pausa de emergencia:** Guardian puede pausar contratos si se detecta un exploit
-- **Multisig para gobernanza:** Agregar árbitros requiere 3-de-5 aprobaciones
+- **Multisig para gobernanza:** El guardian es un multisig 3-de-5 — la pausa nunca depende de una llave única
 - **HMAC-SHA256:** Comunicación API↔Nodeit firmada con ventana de 60 segundos
 - **Replay atómico:** Redis `SET NX` previene doble uso de transacciones x402
 - **Rate limiting:** 100 req/min por API key con Redis
@@ -354,7 +353,7 @@ El treasury lo gestiona la Fundación; su balance es públicamente visible on-ch
 
 Antes de mainnet:
 
-1. Cuatro contratos inteligentes (NodeRegistry, StakeManager, DisputeResolver, SettlementHub) + base `Pausable` — firma independiente
+1. Tres contratos inteligentes (NodeRegistry, StakeManager, SettlementHub) + base `Pausable` — firma independiente
 2. Daemon del nodeit — revisión HMAC e implementación de llaves
 3. API — penetration test de autenticación y webhooks
 
@@ -369,10 +368,10 @@ Los reportes se publicarán en el repositorio público.
 | Fase | Quién gobierna |
 |------|---------------|
 | 1 | Fundación + multisig del equipo core |
-| 2 | Red permissionless + disputas automáticas (la **operación** se descentraliza) |
+| 2 | Red permissionless: cualquiera registra un nodeit y el routing lo elige por reputación (la **operación** se descentraliza) |
 | 3 | Fundación + multisig del equipo core (el control de los contratos sigue en la Fundación) |
 
-> CoatiPay descentraliza la **operación** de la red (cualquiera corre un nodeit, las disputas son por multisig de árbitros), no el **control de los contratos**: el guardian y el conjunto de árbitros los mantiene la Fundación. No hay gobernanza on-chain comprometida.
+> CoatiPay descentraliza la **operación** de la red (cualquiera corre un nodeit y la reputación se calcula públicamente), no el **control de los contratos**: el guardian lo mantiene la Fundación, y la plataforma firma el registro de cada intent. No hay gobernanza on-chain comprometida.
 
 ### 6.2 Lo que no haremos
 
@@ -387,7 +386,7 @@ Los reportes se publicarán en el repositorio público.
 
 ### 7.1 Qué funciona hoy (v0.1)
 
-- Los cuatro contratos inteligentes desplegados (NodeRegistry, StakeManager, DisputeResolver, SettlementHub) + la base `Pausable` heredada, con ~172 tests (unit + fuzz) en Foundry pasando
+- Los tres contratos inteligentes desplegados (NodeRegistry, StakeManager, SettlementHub) + la base `Pausable` heredada, con 140 tests (unit + fuzz) en Foundry pasando
 - **Deploy en Base Sepolia live** con contratos verificados en Basescan (ver `packages/contracts/deployments/sepolia.json`)
 - SDK JS/Python/PHP publicables, con tests
 - REST API completa (payment intents, webhooks, x402) con ~184 tests
@@ -418,13 +417,13 @@ Seamos honestos:
 
 > **Reframe estratégico (2026-05-09) — Luis Campos (LACA-SOFT):** El plan original incluía "Primer comercio" en esta fase. Eso fue un error de framing — ningún comercio real va a procesar ventas sobre testnet. La secuencia correcta es **capital → auditoría externa → mainnet → primer comercio**. Phase 1 cierra cuando el protocolo está en mainnet con auditoría pasada, no antes. "Primer comercio" se mueve a Phase 2.
 
-- ✅ Contratos + tests en Foundry (cuatro contratos desplegados + base `Pausable`; ~172 tests, fuzz testing)
+- ✅ Contratos + tests en Foundry (tres contratos desplegados + base `Pausable`; 140 tests, fuzz testing)
 - ✅ SDK JavaScript, Python, PHP
 - ✅ Verificación on-chain de pagos via viem
 - ✅ Settlement gasless ERC-3009 vía `SettlementHub.sol` (split atómico on-chain)
 - ✅ CI/CD con GitHub Actions
 - ✅ Auditoría interna de seguridad (ver auditoría interna, registro no público)
-- ✅ Deploy en Base Sepolia — versión actual 2026-05-09 con fixes de tanda C (slash 20% real, treasury transfer, guards de zero-address). Ver [`contracts/deployments/sepolia.json`](contracts/deployments/sepolia.json).
+- ✅ Deploy en Base Sepolia — con guardas de dirección cero y separación de roles en wallets distintas. Ver [`contracts/deployments/sepolia.json`](contracts/deployments/sepolia.json).
 - ✅ Primer bootstrap nodeit registrado on-chain y operativo en producción
 - ✅ Repositorio público en GitHub bajo `lacasoft/coatipay-protocol`
 - 🔄 **Capital recaudado para auditoría externa** ($20-50k estimado para firma; $5-15k para auditor independiente)
@@ -529,11 +528,9 @@ TREASURY_FEE_SHARE       = 0.30          (30% al treasury) — derived from TREA
 OPERATOR_SHARE_BPS       = 70            (0.7% del monto)
 TREASURY_SHARE_BPS       = 30            (0.3% del monto)
 DEFAULT_INTENT_TTL       = 1800          (30 minutos)
-DISPUTE_WINDOW_DAYS      = 7
 STAKE_WITHDRAWAL_DAYS    = 7
 ROUTING_CANDIDATES       = 5
 BASE_CONFIRMATIONS       = 1
-NODE_RESPONSE_WINDOW     = 48 horas
 SCORE_CACHE_TTL          = 60 segundos
 ```
 
@@ -541,15 +538,13 @@ SCORE_CACHE_TTL          = 60 segundos
 
 ## Apéndice C — Glosario
 
-**Payment Intent** — La unidad fundamental de CoatiPay. Representa una intención de pago con un ciclo de vida definido: `created → settled`. Estados terminales adicionales: `cancelled`, `expired`, `failed`; `disputed` para el flujo de disputas.
+**Payment Intent** — La unidad fundamental de CoatiPay. Representa una intención de pago con un ciclo de vida definido: `created → settled`. Estados terminales adicionales: `cancelled`, `expired`, `failed`.
 
 **Nodo** — Concepto del protocolo: servidor registrado on-chain que facilita el enrutamiento de pagos. Observa transacciones y confirma settlements. Nunca custodia fondos. Ver `PROTOCOL.md` para la especificación técnica.
 
 **Nodeit** — La implementación de referencia de un nodo CoatiPay. El daemon open source distribuido por este proyecto. Cualquier daemon compatible con el protocolo puede actuar como nodo; nuestro daemon se llama `nodeit` (ver `packages/node/` en el repo).
 
-**Stake** — USDC depositado por un operador de nodeit como garantía económica de buen comportamiento.
-
-**Slashing** — Reducción forzada del stake como consecuencia de perder un dispute.
+**Stake** — USDC depositado por un operador de nodeit para entrar en el registro. Acredita al nodeit, actúa como barrera anti-Sybil y es un compromiso de capital con timelock de 7 días para retirarlo. No es confiscable.
 
 **Score** — Métricas de reputación computadas públicamente (uptime, velocidad, stake, historial).
 

@@ -16,7 +16,6 @@ contract PausableInvariants is Test {
 
     address public constant TREASURY = address(0xC0FFEE);
     address public constant GUARDIAN = address(0xDEAD);
-    address public constant DISPUTE_RESOLVER = address(0xDEFEA7);
 
     function setUp() public {
         usdc = new MockUSDC();

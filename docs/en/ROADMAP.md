@@ -52,8 +52,8 @@ The window to build community-owned infrastructure before institutional standard
 
 ### Technical Milestones
 
-- [x] Smart contracts: `NodeRegistry.sol`, `StakeManager.sol`, `DisputeResolver.sol`, `SettlementHub.sol` — four deployed contracts
-- [x] Foundry test suite: 197 tests (172 unit + 25 invariant/fuzz), all green, across the contracts
+- [x] Smart contracts: `NodeRegistry.sol`, `StakeManager.sol`, `SettlementHub.sol` — three deployed contracts
+- [x] Foundry test suite: 140 tests (124 unit + 16 invariant/fuzz), all green, across the contracts
 - [x] Deploy script: `Deploy.s.sol` ready for Base Sepolia
 - [x] Nodeit daemon: Fastify HTTP API, routes scaffolded
 - [x] REST API: payment intents, webhooks, x402 routes scaffolded
@@ -78,7 +78,7 @@ The window to build community-owned infrastructure before institutional standard
 - [ ] Capital raised for external smart-contract audit
   - Estimated cost: $20-50k USD (Spearbit/Cantina/OpenZeppelin tier) or $5-15k (independent auditor)
   - Funding paths to explore: Base ecosystem grants, Optimism RetroPGF, small angel round, self-funding
-- [ ] External audit contracted — `NodeRegistry.sol`, `StakeManager.sol`, `DisputeResolver.sol`, `SettlementHub.sol`, `Pausable.sol` (~1,356 LOC Solidity, 197 Foundry tests)
+- [ ] External audit contracted — `NodeRegistry.sol`, `StakeManager.sol`, `SettlementHub.sol`, `Pausable.sol` (~990 LOC Solidity, 140 Foundry tests)
 - [ ] Audit findings remediated and verified with re-audit
 - [ ] Deploy to **Base mainnet** with `minStake = 100 USDC` (anti-Sybil floor documented in the whitepaper)
 - [ ] Bootstrap nodeit operational on mainnet (same daemon, mainnet contracts)
@@ -106,7 +106,6 @@ The window to build community-owned infrastructure before institutional standard
 - [ ] PHP SDK: `lacasoft/coatipay-sdk` on Packagist
 - [ ] Merchant dashboard: Next.js + shadcn/ui
 - [ ] WooCommerce plugin (critical for Mexican merchant adoption)
-- [ ] Dispute resolution UI for merchants
 
 ### Market Milestones
 
