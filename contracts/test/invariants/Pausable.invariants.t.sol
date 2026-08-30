@@ -20,10 +20,8 @@ contract PausableInvariants is Test {
 
     function setUp() public {
         usdc = new MockUSDC();
-        stakeManager = new StakeManager(address(usdc), GUARDIAN, TREASURY);
+        stakeManager = new StakeManager(address(usdc), GUARDIAN);
 
-        vm.prank(GUARDIAN);
-        stakeManager.initialize(DISPUTE_RESOLVER);
 
         handler = new PausableHandler(stakeManager, GUARDIAN);
         targetContract(address(handler));

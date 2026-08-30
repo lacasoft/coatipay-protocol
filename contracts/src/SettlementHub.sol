@@ -138,6 +138,8 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     error ZeroAmount();
     error AmountTooLarge();
     error AlreadyRegistered();
+    /// @notice La autorización ERC-3009 no está atada al intent que se paga.
+    error AuthorizationNotBoundToIntent();
     error IntentNotFound();
     error IntentNotPayable();
     error IntentExpired();
@@ -428,6 +430,20 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     ///      `view`. Same justification as `_payAndSettle`.
     // slither-disable-next-line reentrancy-no-eth
     function _payAndSettleViaAuth(Authorization calldata auth) internal {
+        // La firma ERC-3009 cubre `from`, `to`, `value`, `validAfter`,
+        // `validBefore` y `nonce` — no el intent. Y como USDC exige
+        // `msg.sender == to`, el `to` firmado es siempre este contrato y no
+        // puede nombrar al comercio. Sin esta atadura, quien envía la
+        // transacción —el nodeit, la parte NO confiable— podía aplicar la
+        // firma del pagador a un intent propio y quedarse el pago.
+        //
+        // Exigir `nonce == intentId` encierra cada firma en un intent
+        // concreto: `registerIntent` rechaza identificadores repetidos, así
+        // que ese intent ya tiene dueño y no se puede suplantar. El nonce de
+        // USDC es un bytes32 arbitrario que se consume una sola vez, de modo
+        // que reutilizarlo en otro intent es imposible por partida doble.
+        if (auth.nonce != auth.intentId) revert AuthorizationNotBoundToIntent();
+
         address merchantAddr;
         address operatorAddr;
         uint256 amount;

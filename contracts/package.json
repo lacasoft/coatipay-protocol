@@ -2,7 +2,7 @@
   "name": "@lacasoft/coatipay-contracts",
   "version": "0.0.1",
   "private": true,
-  "description": "CoatiPay smart contracts — NodeRegistry, StakeManager, DisputeResolver",
+  "description": "CoatiPay smart contracts — NodeRegistry, StakeManager, SettlementHub",
   "scripts": {
     "build": "forge build",
     "test": "forge test -vvv",

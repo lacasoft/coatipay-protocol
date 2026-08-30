@@ -4,7 +4,6 @@ pragma solidity ^0.8.25;
 import {Test} from "forge-std/Test.sol";
 import {NodeRegistry} from "../../src/NodeRegistry.sol";
 import {StakeManager} from "../../src/StakeManager.sol";
-import {DisputeResolver} from "../../src/DisputeResolver.sol";
 import {MockUSDC} from "../mocks/MockUSDC.sol";
 import {NodeRegistryHandler} from "./handlers/NodeRegistryHandler.sol";
 
@@ -23,17 +22,7 @@ contract NodeRegistryInvariants is Test {
 
     function setUp() public {
         usdc = new MockUSDC();
-        stakeManager = new StakeManager(address(usdc), GUARDIAN, TREASURY);
-
-        // Need a DisputeResolver to satisfy StakeManager.initialize's zero-check.
-        address[] memory arbiters = new address[](3);
-        arbiters[0] = makeAddr("arb1");
-        arbiters[1] = makeAddr("arb2");
-        arbiters[2] = makeAddr("arb3");
-        DisputeResolver resolver = new DisputeResolver(address(stakeManager), TREASURY, arbiters, GUARDIAN);
-
-        vm.prank(GUARDIAN);
-        stakeManager.initialize(address(resolver));
+        stakeManager = new StakeManager(address(usdc), GUARDIAN);
 
         registry = new NodeRegistry(address(stakeManager), GUARDIAN, INITIAL_MIN_STAKE);
 

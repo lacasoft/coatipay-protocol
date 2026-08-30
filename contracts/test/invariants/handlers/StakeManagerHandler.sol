@@ -16,16 +16,11 @@ import {MockUSDC} from "../../mocks/MockUSDC.sol";
 contract StakeManagerHandler is Test {
     StakeManager public immutable stakeManager;
     MockUSDC public immutable usdc;
-    address public immutable disputeResolver;
 
     address[] public actors;
 
     // ── Ghost state ───────────────────────────────────────────
     // Tracked outside the contract so invariants can verify against it.
-
-    /// @notice Cumulative USDC slashed across all operators. Should never
-    ///         exceed the treasury's USDC balance (slashes always transfer).
-    uint256 public ghost_totalSlashed;
 
     /// @notice Cumulative USDC withdrawn (executed) across all operators.
     uint256 public ghost_totalWithdrawn;
@@ -41,10 +36,9 @@ contract StakeManagerHandler is Test {
     ///         signal that the fuzzer is actually doing work.
     uint256 public ghost_calls;
 
-    constructor(StakeManager _stakeManager, MockUSDC _usdc, address _disputeResolver) {
+    constructor(StakeManager _stakeManager, MockUSDC _usdc) {
         stakeManager = _stakeManager;
         usdc = _usdc;
-        disputeResolver = _disputeResolver;
 
         // 5 fixed actors — small enough to keep state tractable, large
         // enough to exercise multi-operator interactions.
@@ -123,23 +117,6 @@ contract StakeManagerHandler is Test {
         }
     }
 
-    function slash(uint256 actorSeed, uint256 amount) external {
-        address actor = _pickActor(actorSeed);
-        uint256 prevBalance = _balanceOf(actor);
-        if (prevBalance == 0) return;
-
-        amount = bound(amount, 0, type(uint128).max);
-        ghost_lastBalance[actor] = prevBalance;
-
-        vm.prank(disputeResolver);
-        stakeManager.slash(actor, amount, keccak256(abi.encode("dispute", actor, amount)));
-
-        uint256 newBalance = _balanceOf(actor);
-        // Slash amount actually applied = whatever the balance dropped by.
-        // This handles the "cap at available" behavior cleanly.
-        ghost_totalSlashed += (prevBalance - newBalance);
-        ghost_calls++;
-    }
 
     // ── Accessors for invariants ──────────────────────────────
 

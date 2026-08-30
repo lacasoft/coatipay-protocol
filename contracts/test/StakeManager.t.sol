@@ -11,7 +11,6 @@ contract StakeManagerTest is Test {
     MockUSDC usdc;
 
     address operator = makeAddr("operator");
-    address disputeResolver = makeAddr("disputeResolver");
     address treasury = makeAddr("treasury");
     address guardian = makeAddr("guardian");
 
@@ -20,10 +19,7 @@ contract StakeManagerTest is Test {
 
     function setUp() public {
         usdc = new MockUSDC();
-        stakeManager = new StakeManager(address(usdc), guardian, treasury);
-
-        vm.prank(guardian);
-        stakeManager.initialize(disputeResolver);
+        stakeManager = new StakeManager(address(usdc), guardian);
 
         usdc.mint(operator, 10_000 * 1e6); // 10,000 USDC
     }
@@ -134,71 +130,6 @@ contract StakeManagerTest is Test {
         stakeManager.executeWithdrawal();
     }
 
-    // ── slash ─────────────────────────────────────────────────
-
-    function test_Slash_ReducesStake() public {
-        _deposit(operator, STAKE);
-
-        bytes32 disputeId = keccak256("dispute-1");
-        uint256 slashAmount = STAKE / 5; // 20%
-
-        vm.prank(disputeResolver);
-        stakeManager.slash(operator, slashAmount, disputeId);
-
-        StakeManager.StakeInfo memory info = stakeManager.getStakeInfo(operator);
-        assertEq(info.staked, STAKE - slashAmount);
-    }
-
-    function test_Slash_EmitsEvent() public {
-        _deposit(operator, STAKE);
-        bytes32 disputeId = keccak256("dispute-1");
-
-        vm.expectEmit(true, false, false, true);
-        emit StakeManager.Slashed(operator, STAKE / 5, disputeId);
-
-        vm.prank(disputeResolver);
-        stakeManager.slash(operator, STAKE / 5, disputeId);
-    }
-
-    function test_Slash_CanReachIntoPendingWithdrawal() public {
-        _deposit(operator, STAKE);
-
-        // Operator requests to withdraw half
-        uint256 halfStake = STAKE / 2;
-        vm.prank(operator);
-        stakeManager.requestWithdrawal(halfStake);
-
-        // Slash more than remaining staked — should eat into pending
-        bytes32 disputeId = keccak256("dispute-big");
-
-        vm.prank(disputeResolver);
-        stakeManager.slash(operator, STAKE, disputeId); // slash full amount
-
-        StakeManager.StakeInfo memory info = stakeManager.getStakeInfo(operator);
-        assertEq(info.staked, 0);
-        assertEq(info.pendingWithdrawal, 0);
-    }
-
-    function test_Slash_CapsAtAvailableStake() public {
-        _deposit(operator, STAKE);
-        bytes32 disputeId = keccak256("dispute-cap");
-
-        // Slash more than staked — should cap at staked amount
-        vm.prank(disputeResolver);
-        stakeManager.slash(operator, STAKE * 10, disputeId);
-
-        StakeManager.StakeInfo memory info = stakeManager.getStakeInfo(operator);
-        assertEq(info.staked, 0);
-    }
-
-    function test_Slash_Revert_OnlyDisputeResolver() public {
-        _deposit(operator, STAKE);
-
-        vm.prank(operator);
-        vm.expectRevert(StakeManager.OnlyDisputeResolver.selector);
-        stakeManager.slash(operator, STAKE, bytes32(0));
-    }
-
     // ── Fuzz ─────────────────────────────────────────────────
 
     function testFuzz_DepositAndWithdraw_FullCycle(uint256 amount) public {
@@ -220,30 +151,6 @@ contract StakeManagerTest is Test {
         assertEq(usdc.balanceOf(operator) - balBefore, amount);
     }
 
-    function testFuzz_Slash_NeverExceedsTotal(uint256 stakeAmount, uint256 slashAmount) public {
-        stakeAmount = bound(stakeAmount, 1, 10_000 * 1e6);
-        slashAmount = bound(slashAmount, 1, type(uint256).max / 2);
-
-        usdc.mint(operator, stakeAmount);
-        _deposit(operator, stakeAmount);
-
-        vm.prank(disputeResolver);
-        stakeManager.slash(operator, slashAmount, keccak256("fuzz-dispute"));
-
-        StakeManager.StakeInfo memory info = stakeManager.getStakeInfo(operator);
-        uint256 remaining = info.staked + info.pendingWithdrawal;
-
-        // Invariant 1: slash never takes more than what was available
-        assertLe(remaining, stakeAmount);
-
-        // Invariant 2: if slashAmount >= stakeAmount, everything is gone
-        if (slashAmount >= stakeAmount) {
-            assertEq(remaining, 0);
-        } else {
-            // Otherwise, exactly slashAmount was taken
-            assertEq(remaining, stakeAmount - slashAmount);
-        }
-    }
 
     // ── Pausable ──────────────────────────────────────────────
 
@@ -309,63 +216,12 @@ contract StakeManagerTest is Test {
         vm.stopPrank();
     }
 
-    // ── Tanda C fixes — slash transfers to treasury ───────────
-
-    function test_Slash_TransfersToTreasury() public {
-        _deposit(operator, STAKE);
-
-        uint256 treasuryBefore = usdc.balanceOf(treasury);
-        uint256 contractBefore = usdc.balanceOf(address(stakeManager));
-
-        uint256 slashAmount = STAKE / 5; // 20%
-
-        vm.prank(disputeResolver);
-        stakeManager.slash(operator, slashAmount, bytes32("test_dispute"));
-
-        // Treasury received the slashed funds
-        assertEq(usdc.balanceOf(treasury), treasuryBefore + slashAmount);
-        // Contract released them
-        assertEq(usdc.balanceOf(address(stakeManager)), contractBefore - slashAmount);
-        // Operator's accounting reduced
-        StakeManager.StakeInfo memory info = stakeManager.getStakeInfo(operator);
-        assertEq(info.staked, STAKE - slashAmount);
-    }
-
-    function test_Slash_ZeroAmount_NoTransferAndNoRevert() public {
-        _deposit(operator, STAKE);
-        uint256 treasuryBefore = usdc.balanceOf(treasury);
-
-        vm.prank(disputeResolver);
-        stakeManager.slash(operator, 0, bytes32("zero_amount"));
-
-        assertEq(usdc.balanceOf(treasury), treasuryBefore);
-        StakeManager.StakeInfo memory info = stakeManager.getStakeInfo(operator);
-        assertEq(info.staked, STAKE);
-    }
-
-    // ── Constructor + initialize zero-checks ──────────────────
-
-    function test_Constructor_Revert_ZeroTreasury() public {
-        vm.expectRevert(StakeManager.ZeroTreasury.selector);
-        new StakeManager(address(usdc), guardian, address(0));
-    }
+    // ── Guardas del constructor ───────────────────────────────
 
     function test_Constructor_Revert_ZeroGuardian() public {
         vm.expectRevert(Pausable.ZeroGuardian.selector);
-        new StakeManager(address(usdc), address(0), treasury);
+        new StakeManager(address(usdc), address(0));
     }
 
-    function test_Initialize_Revert_ZeroResolver() public {
-        StakeManager fresh = new StakeManager(address(usdc), guardian, treasury);
 
-        vm.prank(guardian);
-        vm.expectRevert(StakeManager.ZeroAddress.selector);
-        fresh.initialize(address(0));
-    }
-
-    function test_Initialize_Revert_AlreadyInitialized() public {
-        vm.prank(guardian);
-        vm.expectRevert(StakeManager.AlreadyInitialized.selector);
-        stakeManager.initialize(disputeResolver);
-    }
 }
