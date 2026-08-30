@@ -125,6 +125,10 @@ contract SettlementHubInvariants is Test, IntentSigning {
     function invariant_immutables() public view {
         assertEq(address(hub.usdc()), address(usdc), "usdc reference mutated");
         assertEq(hub.treasury(), TREASURY, "treasury mutated");
+        // El firmante de registros es inmutable a propósito (ADR-004): si
+        // pudiera cambiar, quien lo cambiara podría atar pagos en vuelo a un
+        // comercio de su elección.
+        assertEq(hub.intentSigner(), _intentSigner(), "intentSigner mutated");
         assertEq(hub.PROTOCOL_FEE_BPS(), 100, "fee changed");
         assertEq(hub.TREASURY_SHARE_BPS(), 30, "treasury share changed");
         assertEq(hub.OPERATOR_SHARE_BPS(), 70, "operator share changed");

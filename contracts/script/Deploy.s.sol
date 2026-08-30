@@ -43,6 +43,12 @@ contract Deploy is Script {
         require(treasury != deployerAddr, "Deploy: TREASURY_ADDRESS == deployer (separate them)");
         require(guardian != deployerAddr, "Deploy: GUARDIAN_ADDRESS == deployer (separate them)");
         require(guardian != treasury, "Deploy: GUARDIAN_ADDRESS == TREASURY_ADDRESS (separate them)");
+        // El firmante de intents va aparte de todo lo demás: su compromiso
+        // permite redirigir pagos en vuelo, y compartir cartera multiplicaría
+        // la superficie sin ninguna ventaja.
+        require(intentSigner != deployerAddr, "Deploy: INTENT_SIGNER_ADDRESS == deployer (separate them)");
+        require(intentSigner != guardian, "Deploy: INTENT_SIGNER_ADDRESS == GUARDIAN_ADDRESS (separate them)");
+        require(intentSigner != treasury, "Deploy: INTENT_SIGNER_ADDRESS == TREASURY_ADDRESS (separate them)");
 
         vm.startBroadcast(deployerKey);
 

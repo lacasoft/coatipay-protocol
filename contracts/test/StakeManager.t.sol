@@ -218,6 +218,11 @@ contract StakeManagerTest is Test {
 
     // ── Guardas del constructor ───────────────────────────────
 
+    function test_Constructor_Revert_ZeroUsdc() public {
+        vm.expectRevert(StakeManager.ZeroAddress.selector);
+        new StakeManager(address(0), guardian);
+    }
+
     function test_Constructor_Revert_ZeroGuardian() public {
         vm.expectRevert(Pausable.ZeroGuardian.selector);
         new StakeManager(address(usdc), address(0));

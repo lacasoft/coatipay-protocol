@@ -54,6 +54,10 @@ contract StakeManager is Pausable, ReentrancyGuard {
     // ── Constructor ──────────────────────────────────────────
 
     constructor(address _usdc, address _guardian) Pausable(_guardian) {
+        // El error ZeroAddress estaba declarado y no se usaba: la guarda
+        // faltaba. Un `usdc` a cero dejaría el contrato inservible y sin
+        // forma de arreglarlo, porque es inmutable.
+        if (_usdc == address(0)) revert ZeroAddress();
         usdc = IERC20(_usdc);
     }
 
