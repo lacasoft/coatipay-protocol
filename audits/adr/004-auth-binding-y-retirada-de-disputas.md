@@ -2,7 +2,8 @@
 
 > **Status**: 🟢 **Aceptado** (2026-08-29)
 > **Date**: 2026-08-29
-> **Supersede**: ADR-001 §3.10 (integración con disputas) y ADR-002 §2.1 en lo relativo al slashing.
+> **Supersede**: ADR-001 §3.10 (integración con disputas), ADR-002 §2.1 en lo
+> relativo al slashing, y el registro permissionless de intents de ADR-001.
 > El reparto de comisiones (100 bps, 70/30) sigue vigente sin cambios.
 
 ## Contexto
@@ -41,6 +42,25 @@ gana nada. Pero un solo castigo del 20% deja al nodeit **por debajo del
 `minStake`**, y el API rechaza a quien no llega al mínimo. Es decir: saca al
 operador de la red.
 
+### F-3 — El nodeit elegía a quién se paga (crítica, hallazgo propio)
+
+Al comprobar si la corrección de F-1 era **íntegra** encontramos una segunda
+ruta de la misma clase, que el reporte externo no cubría.
+
+`registerIntent` era permissionless y **el daemon del nodeit es quien lo llama**
+on-chain, con datos que le entrega el API. Nada le obligaba a usarlos: bastaba
+sustituir la dirección del comercio por la suya al registrar el intent que el
+API le había asignado. El nonce seguía coincidiendo con el `intentId`, así que
+la atadura de F-1 no lo detectaba.
+
+Reproducido con la corrección de F-1 ya aplicada: el nodeit se lleva los mismos
+**997 de 1000 USDC**. Tampoco había red de seguridad off-chain — el vigilante de
+eventos registra los importes pero nunca compara la dirección del comercio.
+
+La causa raíz es que **el contrato no tenía ninguna fuente autenticada** para
+saber quién es el comercio de un intent: se fiaba de quien llamaba, que es la
+parte no confiable.
+
 ## Decisión
 
 ### 1. `nonce == intentId`, exigido on-chain
@@ -61,7 +81,28 @@ dirección todavía no se conoce. La atadura del nonce cierra el fallo por sí s
 Efecto secundario deseable: el mapa de nonces de USDC pasa a garantizar también
 una sola liquidación por intent, de forma independiente al estado del intent.
 
-### 2. Se retiran las disputas y el slashing
+### 2. El registro de intents va firmado (EIP-712)
+
+`registerIntent` exige la firma de `intentSigner` sobre
+`(intentId, merchant, operator, amount, expiresAt)`. El nodeit sigue enviando la
+transacción y pagando el gas, pero no puede alterar el contenido.
+
+**`intentSigner` es inmutable a propósito.** Si el guardian pudiera rotarlo,
+tendría capacidad de atar pagos en vuelo a un comercio de su elección — es
+decir, de mover fondos, que es exactamente la potestad que este diseño le niega.
+Ante un compromiso de la clave la respuesta es **pausar y redesplegar**, y la
+pausa ya existe como palanca de emergencia.
+
+Es una centralización real y hay que declararla: la plataforma pasa a ser
+autoritativa sobre el binding intent→comercio. Ya lo era de facto —decide el
+alta de comercios y el enrutamiento—, pero ahora queda explícito en el contrato.
+
+De paso, el lote pasa de seis arreglos paralelos a **un arreglo de structs**.
+Elimina de raíz la clase de fallo de longitudes descuadradas (y su test, que ya
+no puede fallar) y resuelve el agotamiento de pila que provocaba el parámetro
+extra.
+
+### 3. Se retiran las disputas y el slashing
 
 Eliminados `DisputeResolver.sol`, `IDisputeResolver.sol`, sus tests e
 invariantes, y de `StakeManager`: `slash()`, `initialize()`, el campo
@@ -104,9 +145,15 @@ auditoría en lugar de mejorarla.
 
 - **Los contratos hay que redesplegarlos.** Las constantes y la lógica viven en
   bytecode no actualizable.
-- **Orden obligatorio del despliegue**: primero el cambio off-chain que fija
-  `nonce = intentId`, que es compatible con el contrato viejo y con el nuevo;
-  después los contratos. Al revés, producción deja de liquidar.
+- **El despliegue es un corte limpio, no una transición gradual.** El registro
+  cambia de firma (struct + firma EIP-712), así que el daemon viejo no puede
+  hablar con el contrato nuevo ni al revés. La secuencia es: desplegar los
+  contratos nuevos, y **después** apuntar API y daemon a las direcciones nuevas
+  en la misma ventana. Los intents registrados en el contrato viejo que no se
+  hayan liquidado hay que drenarlos antes o darlos por caducados.
+  (Una versión anterior de este documento decía que el cambio off-chain podía ir
+  primero por ser compatible con ambos contratos: eso valía cuando la corrección
+  era solo la atadura del nonce, y dejó de ser cierto al firmar el registro.)
 - **El SDK cambia de comportamiento**: el nonce dejaba de ser aleatorio. Exige
   publicar versión nueva de los tres SDK.
 - **Despliegue más simple y más seguro**: sin la dependencia circular
@@ -125,9 +172,13 @@ auditoría en lugar de mejorarla.
 
 - El exploit de F-1 se reprodujo primero contra el código vigente (997 USDC al
   atacante, 0 al comercio) y **después** se comprobó que revierte.
-- Cuatro tests de regresión en `SettlementHub.authBinding.t.sol`, incluido el
-  caso en lote: la autorización redirigida se salta y la legítima prospera.
+- **Nueve** tests de regresión en `SettlementHub.authBinding.t.sol`: la
+  autorización redirigida, el nonce suelto, el lote con un elemento redirigido,
+  el nodeit nombrándose comercio, la alteración del comercio o del importe tras
+  firmar, el lote con un elemento manipulado, y los dos caminos legítimos.
+- El ataque de F-3 se reprodujo **con la corrección de F-1 ya aplicada** —para
+  demostrar que era insuficiente— y después se comprobó que revierte.
 - El arnés de pruebas ya no acepta un nonce suelto: se deriva del intent, para
   que ningún test futuro pruebe un camino que no existe.
 - Suite completa en verde. El recuento cuadra exactamente con lo eliminado:
-  197 − 44 − 6 − 10 − 1 − 1 − 3 + 4 = **136**.
+  197 − 44 − 6 − 10 − 1 − 1 − 3 − 1 + 9 = **140**, y los 140 pasan.

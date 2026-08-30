@@ -2,10 +2,11 @@
 pragma solidity ^0.8.25;
 
 import {Test} from "forge-std/Test.sol";
+import {IntentSigning} from "../../helpers/IntentSigning.sol";
 import {SettlementHub} from "../../../src/SettlementHub.sol";
 import {MockUSDCPermit} from "../../mocks/MockUSDCPermit.sol";
 
-contract SettlementHubHandler is Test {
+contract SettlementHubHandler is Test, IntentSigning {
     SettlementHub public immutable hub;
     MockUSDCPermit public immutable usdc;
     address public immutable treasury;
@@ -55,7 +56,7 @@ contract SettlementHubHandler is Test {
         address operator = _pickAddr(operators, operatorSeed);
         uint64 expiresAt = uint64(block.timestamp + expiryOffset);
 
-        hub.registerIntent(intentId, merchant, operator, amount, expiresAt);
+        _reg(hub, intentId, merchant, operator, amount, expiresAt);
         registeredIntents.push(intentId);
         ghost_totalRegistered++;
         ghost_calls++;

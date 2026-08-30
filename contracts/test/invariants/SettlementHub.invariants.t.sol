@@ -2,6 +2,7 @@
 pragma solidity ^0.8.25;
 
 import {Test} from "forge-std/Test.sol";
+import {IntentSigning} from "../helpers/IntentSigning.sol";
 import {SettlementHub} from "../../src/SettlementHub.sol";
 import {MockUSDCPermit} from "../mocks/MockUSDCPermit.sol";
 import {SettlementHubHandler} from "./handlers/SettlementHubHandler.sol";
@@ -9,7 +10,7 @@ import {SettlementHubHandler} from "./handlers/SettlementHubHandler.sol";
 /// @title SettlementHub invariant tests
 /// @dev   Each invariant maps directly to a guarantee we make to merchants
 ///        and the auditor. If any fails, fund safety is broken.
-contract SettlementHubInvariants is Test {
+contract SettlementHubInvariants is Test, IntentSigning {
     SettlementHub hub;
     MockUSDCPermit usdc;
     SettlementHubHandler handler;
@@ -19,7 +20,7 @@ contract SettlementHubInvariants is Test {
 
     function setUp() public {
         usdc = new MockUSDCPermit();
-        hub = new SettlementHub(address(usdc), TREASURY, GUARDIAN);
+        hub = new SettlementHub(address(usdc), TREASURY, GUARDIAN, _intentSigner());
 
         handler = new SettlementHubHandler(hub, usdc, TREASURY);
         targetContract(address(handler));

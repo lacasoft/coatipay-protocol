@@ -2,6 +2,7 @@
 pragma solidity ^0.8.25;
 
 import {Test} from "forge-std/Test.sol";
+import {IntentSigning} from "./helpers/IntentSigning.sol";
 import {SettlementHub} from "../src/SettlementHub.sol";
 import {Pausable} from "../src/Pausable.sol";
 import {MockUSDCAuth} from "./mocks/MockUSDCAuth.sol";
@@ -12,7 +13,7 @@ import {MockERC1271Wallet} from "./mocks/MockERC1271Wallet.sol";
 ///         so the new mock (MockUSDCAuth, with ERC-3009) doesn't disturb the
 ///         existing tests that use MockUSDCPermit (with EIP-2612).
 ///         See ADR-003 for the design rationale of payIntentWithAuthorization.
-contract SettlementHubAuthTest is Test {
+contract SettlementHubAuthTest is Test, IntentSigning {
     SettlementHub hub;
     MockUSDCAuth usdc;
 
@@ -33,7 +34,7 @@ contract SettlementHubAuthTest is Test {
         vm.warp(1_700_000_000); // ~2023-11
 
         usdc = new MockUSDCAuth();
-        hub = new SettlementHub(address(usdc), treasury, guardian);
+        hub = new SettlementHub(address(usdc), treasury, guardian, _intentSigner());
 
         (payer, payerKey) = makeAddrAndKey("payer");
         usdc.mint(payer, 10 * AMOUNT);
@@ -44,7 +45,7 @@ contract SettlementHubAuthTest is Test {
     // ── Helpers ───────────────────────────────────────────────
 
     function _registerIntent(bytes32 id) internal {
-        hub.registerIntent(id, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, id, merchant, operator, AMOUNT, expiresAt);
     }
 
     /// Sign the ReceiveWithAuthorization digest and return it as a packed

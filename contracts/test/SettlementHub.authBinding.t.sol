@@ -2,6 +2,7 @@
 pragma solidity ^0.8.25;
 
 import {Test} from "forge-std/Test.sol";
+import {IntentSigning} from "./helpers/IntentSigning.sol";
 import {SettlementHub} from "../src/SettlementHub.sol";
 import {MockUSDCAuth} from "./mocks/MockUSDCAuth.sol";
 
@@ -23,7 +24,7 @@ import {MockUSDCAuth} from "./mocks/MockUSDCAuth.sol";
 ///         El hub ahora exige `auth.nonce == auth.intentId`. Como
 ///         `registerIntent` rechaza identificadores repetidos, cada firma
 ///         queda encerrada en un intent que ya tiene dueño.
-contract SettlementHubAuthBindingTest is Test {
+contract SettlementHubAuthBindingTest is Test, IntentSigning {
     SettlementHub hub;
     MockUSDCAuth usdc;
 
@@ -46,7 +47,7 @@ contract SettlementHubAuthBindingTest is Test {
     function setUp() public {
         vm.warp(1_700_000_000);
         usdc = new MockUSDCAuth();
-        hub = new SettlementHub(address(usdc), treasury, guardian);
+        hub = new SettlementHub(address(usdc), treasury, guardian, _intentSigner());
         (payer, payerKey) = makeAddrAndKey("payer");
         usdc.mint(payer, 10 * AMOUNT);
         expiresAt = uint64(block.timestamp + 30 minutes);
@@ -89,10 +90,10 @@ contract SettlementHubAuthBindingTest is Test {
     /// El ataque exacto del reporte: la firma que el pagador emitió para el
     /// comercio honesto se aplica al intent señuelo del atacante.
     function test_RevertWhen_AuthorizationRedirectedToAnotherIntent() public {
-        hub.registerIntent(HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
         // El atacante se registra como comercio Y como operador del señuelo,
         // por el mismo importe, que puede leer del intent honesto.
-        hub.registerIntent(EVIL_INTENT, attacker, attacker, AMOUNT, expiresAt);
+        _reg(hub, EVIL_INTENT, attacker, attacker, AMOUNT, expiresAt);
 
         // El pagador firma para SU intent. La firma llega al nodeit, que es
         // quien debe enviarla: ahí está la exposición.
@@ -108,7 +109,7 @@ contract SettlementHubAuthBindingTest is Test {
 
     /// Un nonce arbitrario tampoco sirve: es lo que hacía el SDK por defecto.
     function test_RevertWhen_NonceIsRandom() public {
-        hub.registerIntent(HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
         SettlementHub.Authorization memory auth = _auth(HONEST_INTENT, keccak256("nonce_aleatorio"));
 
         vm.expectRevert(SettlementHub.AuthorizationNotBoundToIntent.selector);
@@ -117,7 +118,7 @@ contract SettlementHubAuthBindingTest is Test {
 
     /// El camino legítimo sigue funcionando con el nonce atado al intent.
     function test_SettlesWhenNonceMatchesIntent() public {
-        hub.registerIntent(HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
         SettlementHub.Authorization memory auth = _auth(HONEST_INTENT, HONEST_INTENT);
 
         hub.payIntentWithAuthorization(auth);
@@ -132,9 +133,9 @@ contract SettlementHubAuthBindingTest is Test {
     /// un elemento malicioso no debe envenenar el resto.
     function test_BatchSkipsRedirectedAuthorization() public {
         bytes32 otro = keccak256("pi_honesto_2");
-        hub.registerIntent(HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
-        hub.registerIntent(otro, merchant, operator, AMOUNT, expiresAt);
-        hub.registerIntent(EVIL_INTENT, attacker, attacker, AMOUNT, expiresAt);
+        _reg(hub, HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, otro, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, EVIL_INTENT, attacker, attacker, AMOUNT, expiresAt);
 
         SettlementHub.Authorization[] memory lote = new SettlementHub.Authorization[](2);
         lote[0] = _auth(EVIL_INTENT, otro); // redirigida
@@ -146,5 +147,71 @@ contract SettlementHubAuthBindingTest is Test {
         assertEq(liquidadas, 1, "solo prospera la legitima");
         assertEq(usdc.balanceOf(attacker), 0, "el atacante no recibe nada");
         assertEq(usdc.balanceOf(merchant), 990_000_000, "el comercio honesto cobra");
+    }
+
+    // ── Registro firmado (ADR-004) ────────────────────────────
+
+    /// El nodeit es quien envía registerIntent con los datos que le da el API.
+    /// Sin firma podía sustituir la dirección del comercio por la suya y
+    /// quedarse el pago, aunque la autorización estuviera bien atada al intent.
+    function test_RevertWhen_OperatorNamesItselfMerchant() public {
+        SettlementHub.IntentRegistration memory falso = SettlementHub.IntentRegistration({
+            intentId: HONEST_INTENT,
+            merchant: attacker, // se pone a sí mismo
+            operator: attacker,
+            amount: AMOUNT,
+            expiresAt: expiresAt,
+            // Firma con SU clave, no con la del firmante autorizado.
+            signature: _signIntentWith(0xBAD, hub, HONEST_INTENT, attacker, attacker, AMOUNT, expiresAt)
+        });
+
+        vm.prank(attacker);
+        vm.expectRevert(SettlementHub.InvalidIntentSignature.selector);
+        hub.registerIntent(falso);
+    }
+
+    /// Tomar una firma legítima y alterar el comercio invalida el registro:
+    /// la dirección forma parte de lo firmado.
+    function test_RevertWhen_MerchantTamperedAfterSigning() public {
+        SettlementHub.IntentRegistration memory reg =
+            _regOf(hub, HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
+        reg.merchant = attacker; // se altera después de firmar
+
+        vm.expectRevert(SettlementHub.InvalidIntentSignature.selector);
+        hub.registerIntent(reg);
+    }
+
+    /// Alterar el importe tampoco cuela.
+    function test_RevertWhen_AmountTamperedAfterSigning() public {
+        SettlementHub.IntentRegistration memory reg =
+            _regOf(hub, HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
+        reg.amount = AMOUNT * 2;
+
+        vm.expectRevert(SettlementHub.InvalidIntentSignature.selector);
+        hub.registerIntent(reg);
+    }
+
+    /// El lote no es un atajo: cada elemento necesita su firma.
+    function test_RevertWhen_BatchElementUnsigned() public {
+        SettlementHub.IntentRegistration[] memory lote = new SettlementHub.IntentRegistration[](2);
+        lote[0] = _regOf(hub, HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
+        lote[1] = _regOf(hub, EVIL_INTENT, merchant, operator, AMOUNT, expiresAt);
+        lote[1].merchant = attacker; // alterado tras firmar
+
+        vm.prank(attacker);
+        vm.expectRevert(SettlementHub.InvalidIntentSignature.selector);
+        hub.registerIntentBatch(lote);
+    }
+
+    /// Y el camino legítimo sigue funcionando de punta a punta.
+    function test_SignedRegistrationSettlesToRealMerchant() public {
+        _reg(hub, HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
+        SettlementHub.Authorization memory auth = _auth(HONEST_INTENT, HONEST_INTENT);
+
+        vm.prank(operator);
+        hub.payIntentWithAuthorization(auth);
+
+        assertEq(usdc.balanceOf(merchant), 990_000_000, "el comercio real cobra el 99%");
+        assertEq(usdc.balanceOf(attacker), 0, "el atacante no recibe nada");
     }
 }

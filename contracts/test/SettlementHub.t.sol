@@ -2,11 +2,12 @@
 pragma solidity ^0.8.25;
 
 import {Test} from "forge-std/Test.sol";
+import {IntentSigning} from "./helpers/IntentSigning.sol";
 import {SettlementHub} from "../src/SettlementHub.sol";
 import {Pausable} from "../src/Pausable.sol";
 import {MockUSDCPermit} from "./mocks/MockUSDCPermit.sol";
 
-contract SettlementHubTest is Test {
+contract SettlementHubTest is Test, IntentSigning {
     SettlementHub hub;
     MockUSDCPermit usdc;
 
@@ -23,7 +24,7 @@ contract SettlementHubTest is Test {
 
     function setUp() public {
         usdc = new MockUSDCPermit();
-        hub = new SettlementHub(address(usdc), treasury, guardian);
+        hub = new SettlementHub(address(usdc), treasury, guardian, _intentSigner());
 
         (payer, payerKey) = makeAddrAndKey("payer");
         usdc.mint(payer, 10 * AMOUNT);
@@ -41,17 +42,17 @@ contract SettlementHubTest is Test {
 
     function test_Constructor_Revert_ZeroUsdc() public {
         vm.expectRevert(SettlementHub.ZeroAddress.selector);
-        new SettlementHub(address(0), treasury, guardian);
+        new SettlementHub(address(0), treasury, guardian, _intentSigner());
     }
 
     function test_Constructor_Revert_ZeroTreasury() public {
         vm.expectRevert(SettlementHub.ZeroAddress.selector);
-        new SettlementHub(address(usdc), address(0), guardian);
+        new SettlementHub(address(usdc), address(0), guardian, _intentSigner());
     }
 
     function test_Constructor_Revert_ZeroGuardian() public {
         vm.expectRevert(Pausable.ZeroGuardian.selector);
-        new SettlementHub(address(usdc), treasury, address(0));
+        new SettlementHub(address(usdc), treasury, address(0), _intentSigner());
     }
 
     // ── Constants ─────────────────────────────────────────────
@@ -69,7 +70,7 @@ contract SettlementHubTest is Test {
         vm.expectEmit(true, true, true, true);
         emit SettlementHub.IntentRegistered(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
 
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
 
         SettlementHub.Intent memory i = hub.getIntent(INTENT_ID);
         assertEq(i.merchant, merchant);
@@ -80,38 +81,44 @@ contract SettlementHubTest is Test {
     }
 
     function test_RegisterIntent_Revert_AlreadyRegistered() public {
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
 
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
         vm.expectRevert(SettlementHub.AlreadyRegistered.selector);
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_ZeroMerchant() public {
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, address(0), operator, AMOUNT, expiresAt);
         vm.expectRevert(SettlementHub.ZeroAddress.selector);
-        hub.registerIntent(INTENT_ID, address(0), operator, AMOUNT, expiresAt);
+        hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_ZeroOperator() public {
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, address(0), AMOUNT, expiresAt);
         vm.expectRevert(SettlementHub.ZeroAddress.selector);
-        hub.registerIntent(INTENT_ID, merchant, address(0), AMOUNT, expiresAt);
+        hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_ZeroAmount() public {
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, operator, 0, expiresAt);
         vm.expectRevert(SettlementHub.ZeroAmount.selector);
-        hub.registerIntent(INTENT_ID, merchant, operator, 0, expiresAt);
+        hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_PastExpiry() public {
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, operator, AMOUNT, uint64(block.timestamp));
         vm.expectRevert(SettlementHub.InvalidExpiry.selector);
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, uint64(block.timestamp));
+        hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_WhenPaused() public {
         vm.prank(guardian);
         hub.pause();
 
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_AnyoneCanCall() public {
@@ -119,7 +126,7 @@ contract SettlementHubTest is Test {
         // gets fees. A "registrar" pays gas with no return.
         address randomCaller = makeAddr("random");
         vm.prank(randomCaller);
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
 
         SettlementHub.Intent memory i = hub.getIntent(INTENT_ID);
         assertEq(i.operator, operator, "operator field is the recorded one, not msg.sender");
@@ -142,7 +149,7 @@ contract SettlementHubTest is Test {
             exps[i] = expiresAt;
         }
 
-        uint256 registered = hub.registerIntentBatch(ids, merchants, operators, amounts, exps);
+        uint256 registered = hub.registerIntentBatch(_regsOf(hub, ids, merchants, operators, amounts, exps));
         assertEq(registered, 3);
 
         for (uint256 i = 0; i < 3; i++) {
@@ -154,7 +161,7 @@ contract SettlementHubTest is Test {
     function test_RegisterIntentBatch_SkipDuplicates() public {
         // Pre-register one intent
         bytes32 dupeId = keccak256("dupe");
-        hub.registerIntent(dupeId, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, dupeId, merchant, operator, AMOUNT, expiresAt);
 
         // Batch includes the dupe — should be skipped, others succeed
         bytes32[] memory ids = new bytes32[](3);
@@ -173,25 +180,15 @@ contract SettlementHubTest is Test {
             exps[i] = expiresAt;
         }
 
-        uint256 registered = hub.registerIntentBatch(ids, merchants, operators, amounts, exps);
+        uint256 registered = hub.registerIntentBatch(_regsOf(hub, ids, merchants, operators, amounts, exps));
         assertEq(registered, 2, "dupe skipped");
     }
 
-    function test_RegisterIntentBatch_Revert_LengthMismatch() public {
-        bytes32[] memory ids = new bytes32[](2);
-        address[] memory merchants = new address[](3); // wrong length
-        address[] memory operators = new address[](2);
-        uint256[] memory amounts = new uint256[](2);
-        uint64[] memory exps = new uint64[](2);
-
-        vm.expectRevert(SettlementHub.BatchLengthMismatch.selector);
-        hub.registerIntentBatch(ids, merchants, operators, amounts, exps);
-    }
 
     // ── payIntent ─────────────────────────────────────────────
 
     function _registerDefault() internal {
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
     }
 
     function test_PayIntent_Success() public {
@@ -484,13 +481,14 @@ contract SettlementHubTest is Test {
         vm.stopPrank();
 
         // New registration is blocked
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, keccak256("new"), merchant, operator, AMOUNT, expiresAt);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        hub.registerIntent(keccak256("new"), merchant, operator, AMOUNT, expiresAt);
+        hub.registerIntent(reg);
 
         // Unpause restores registration
         vm.prank(guardian);
         hub.unpause();
-        hub.registerIntent(keccak256("new"), merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, keccak256("new"), merchant, operator, AMOUNT, expiresAt);
     }
 
     // ── Reentrancy ────────────────────────────────────────────
@@ -530,7 +528,7 @@ contract SettlementHubTest is Test {
         usdc.mint(payer, amount);
 
         bytes32 fuzzId = keccak256(abi.encode("fuzz", amount));
-        hub.registerIntent(fuzzId, merchant, operator, amount, expiresAt);
+        _reg(hub, fuzzId, merchant, operator, amount, expiresAt);
 
         vm.startPrank(payer);
         usdc.approve(address(hub), amount);

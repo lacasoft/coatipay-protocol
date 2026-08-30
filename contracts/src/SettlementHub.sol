@@ -2,6 +2,7 @@
 pragma solidity ^0.8.25;
 
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
+import {ECDSA} from "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
 import {IERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
 import {IERC3009} from "./interfaces/IERC3009.sol";
@@ -69,6 +70,23 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     IERC20 public immutable usdc;
     address public immutable treasury;
 
+    /// @notice Única dirección cuya firma autoriza a registrar un intent.
+    ///         INMUTABLE a propósito: rotarla exigiría redesplegar. La razón es
+    ///         que el guardian no debe poder cambiarla — si pudiera, tendría
+    ///         capacidad de atar pagos en vuelo a un comercio de su elección,
+    ///         que es exactamente la potestad de mover fondos que este diseño
+    ///         le niega. Ante un compromiso de la clave, la respuesta es pausar
+    ///         y redesplegar.
+    address public immutable intentSigner;
+
+    bytes32 private constant _DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+
+    /// @notice Estructura que firma `intentSigner` para autorizar un registro.
+    bytes32 public constant REGISTER_INTENT_TYPEHASH = keccak256(
+        "RegisterIntent(bytes32 intentId,address merchant,address operator,uint256 amount,uint64 expiresAt)"
+    );
+
     enum IntentStatus {
         Registered, // 0 — intent declared, awaiting payment
         Settled, // 1 — paid + atomically split
@@ -97,6 +115,18 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     /// @notice ERC-3009 authorization parameters wrapped as a struct so the
     ///         batch function can take a single calldata array (cleaner SDK
     ///         ergonomics + avoids "stack too deep" with 8 parallel arrays).
+    /// @notice Un registro de intent autorizado por `intentSigner`.
+    ///         Se agrupa en un struct en vez de arreglos paralelos: elimina la
+    ///         clase de fallo de longitudes descuadradas y evita agotar la pila.
+    struct IntentRegistration {
+        bytes32 intentId;
+        address merchant;
+        address operator;
+        uint256 amount;
+        uint64 expiresAt;
+        bytes signature;
+    }
+
     struct Authorization {
         bytes32 intentId;
         address payer;
@@ -140,24 +170,52 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     error AlreadyRegistered();
     /// @notice La autorización ERC-3009 no está atada al intent que se paga.
     error AuthorizationNotBoundToIntent();
+    /// @notice El registro del intent no viene firmado por `intentSigner`.
+    error InvalidIntentSignature();
     error IntentNotFound();
     error IntentNotPayable();
     error IntentExpired();
     error IntentNotExpired();
     error TransferFailed();
     error InvalidExpiry();
-    error BatchLengthMismatch();
     error BatchTooLarge();
     error Forbidden();
 
     // ── Constructor ──────────────────────────────────────────
 
-    constructor(address _usdc, address _treasury, address _guardian) Pausable(_guardian) {
+    constructor(address _usdc, address _treasury, address _guardian, address _intentSigner) Pausable(_guardian) {
         if (_usdc == address(0)) revert ZeroAddress();
         if (_treasury == address(0)) revert ZeroAddress();
+        if (_intentSigner == address(0)) revert ZeroAddress();
         usdc = IERC20(_usdc);
         treasury = _treasury;
+        intentSigner = _intentSigner;
         emit ProtocolDeployed(_usdc, _treasury, PROTOCOL_FEE_BPS, TREASURY_SHARE_BPS);
+    }
+
+    /// @notice Separador de dominio EIP-712. Se calcula en cada llamada en
+    ///         lugar de cachearse: así una bifurcación de la cadena invalida
+    ///         automáticamente las firmas de la cadena original.
+    function DOMAIN_SEPARATOR() public view returns (bytes32) {
+        return keccak256(
+            abi.encode(_DOMAIN_TYPEHASH, keccak256("CoatiPay SettlementHub"), keccak256("1"), block.chainid, address(this))
+        );
+    }
+
+    /// @dev Verifica que `intentSigner` autorizó ESTE registro concreto.
+    ///      Sin esto, quien envía la transacción —el nodeit, la parte no
+    ///      confiable— elegía la dirección del comercio y podía ponerse a sí
+    ///      mismo, quedándose el pago aunque la autorización del pagador
+    ///      estuviera correctamente atada a su intent.
+    function _requireSignedRegistration(IntentRegistration calldata reg) internal view {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                REGISTER_INTENT_TYPEHASH, reg.intentId, reg.merchant, reg.operator, reg.amount, reg.expiresAt
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
+        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, reg.signature);
+        if (err != ECDSA.RecoverError.NoError || recovered != intentSigner) revert InvalidIntentSignature();
     }
 
     // ── Intent registration ──────────────────────────────────
@@ -171,12 +229,9 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     ///         call cannot overwrite).
     /// @dev    Pause semantics (Q5/ADR-001): blocked when paused; existing
     ///         intents can still be paid via `payIntent` / `payIntentWithPermit`.
-    function registerIntent(bytes32 intentId, address merchant, address operator, uint256 amount, uint64 expiresAt)
-        external
-        whenNotPaused
-        nonReentrant
-    {
-        _registerIntent(intentId, merchant, operator, amount, expiresAt);
+    function registerIntent(IntentRegistration calldata reg) external whenNotPaused nonReentrant {
+        _requireSignedRegistration(reg);
+        _registerIntent(reg.intentId, reg.merchant, reg.operator, reg.amount, reg.expiresAt);
     }
 
     /// @notice Register multiple intents in one transaction. Designed for
@@ -188,23 +243,24 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     /// @dev    Micropayment cost note: even batched, x402-class flows
     ///         (sub-cent payments) require gas abstraction (ADR-002 Phase B,
     ///         Circle Paymaster) to be economically viable for the payer.
-    function registerIntentBatch(
-        bytes32[] calldata intentIds,
-        address[] calldata merchants,
-        address[] calldata operators,
-        uint256[] calldata amounts,
-        uint64[] calldata expirations
-    ) external whenNotPaused nonReentrant returns (uint256 registered) {
-        uint256 len = intentIds.length;
-        if (merchants.length != len || operators.length != len || amounts.length != len || expirations.length != len) {
-            revert BatchLengthMismatch();
-        }
+    function registerIntentBatch(IntentRegistration[] calldata regs)
+        external
+        whenNotPaused
+        nonReentrant
+        returns (uint256 registered)
+    {
+        uint256 len = regs.length;
+        if (len > MAX_BATCH_SIZE) revert BatchTooLarge();
 
         for (uint256 i; i < len;) {
-            // Skip duplicates explicitly by checking the slot. Try-catch via
-            // a separate call would cost more gas than this branch.
-            if (_intents[intentIds[i]].merchant == address(0)) {
-                _registerIntent(intentIds[i], merchants[i], operators[i], amounts[i], expirations[i]);
+            // Skip-on-conflict: los ya registrados se saltan en silencio.
+            if (_intents[regs[i].intentId].merchant == address(0)) {
+                // La firma se exige por elemento: el lote no puede ser un
+                // atajo para registrar sin autorización.
+                _requireSignedRegistration(regs[i]);
+                _registerIntent(
+                    regs[i].intentId, regs[i].merchant, regs[i].operator, regs[i].amount, regs[i].expiresAt
+                );
                 unchecked {
                     ++registered;
                 }

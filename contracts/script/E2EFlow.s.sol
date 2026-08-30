@@ -102,7 +102,25 @@ contract E2EFlow is Script {
         uint64 expiresAt = uint64(block.timestamp + 30 minutes);
 
         vm.startBroadcast(cfg.operatorKey);
-        cfg.hub.registerIntent(cfg.intentId, cfg.merchant, cfg.operator, cfg.amount, expiresAt);
+        // El registro va firmado por intentSigner (ADR-004): el nodeit envía
+        // la transacción pero no elige a quién se paga.
+        bytes32 structHash = keccak256(
+            abi.encode(
+                cfg.hub.REGISTER_INTENT_TYPEHASH(), cfg.intentId, cfg.merchant, cfg.operator, cfg.amount, expiresAt
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", cfg.hub.DOMAIN_SEPARATOR(), structHash));
+        (uint8 sv, bytes32 sr, bytes32 ss) = vm.sign(vm.envUint("INTENT_SIGNER_PRIVATE_KEY"), digest);
+        cfg.hub.registerIntent(
+            SettlementHub.IntentRegistration({
+                intentId: cfg.intentId,
+                merchant: cfg.merchant,
+                operator: cfg.operator,
+                amount: cfg.amount,
+                expiresAt: expiresAt,
+                signature: abi.encodePacked(sr, ss, sv)
+            })
+        );
         vm.stopBroadcast();
 
         SettlementHub.Intent memory intent = cfg.hub.getIntent(cfg.intentId);

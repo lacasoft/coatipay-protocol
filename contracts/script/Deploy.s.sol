@@ -18,6 +18,8 @@ import {StakeManager} from "../src/StakeManager.sol";
 ///   USDC_ADDRESS          — USDC token contract on the target chain
 ///   TREASURY_ADDRESS      — Cartera que recibe la comisión del protocolo
 ///                           (inmutable en SettlementHub tras el despliegue)
+///   INTENT_SIGNER_ADDRESS — Dirección cuya firma autoriza registrar intents
+///                           (inmutable en SettlementHub tras el despliegue)
 ///   GUARDIAN_ADDRESS      — Cartera con autoridad de pausa y setMinStake.
 ///                           Rotable después vía Pausable.transferGuardian().
 ///                           Should be a wallet SEPARATE from the deployer.
@@ -26,6 +28,10 @@ contract Deploy is Script {
         address usdc = vm.envAddress("USDC_ADDRESS");
         address treasury = vm.envAddress("TREASURY_ADDRESS");
         address guardian = vm.envAddress("GUARDIAN_ADDRESS");
+        // Firmante autorizado de registros de intent (ADR-004). Es la clave
+        // que usa el API para atar cada intent a su comercio; el nodeit envía
+        // la transacción pero no puede alterar su contenido.
+        address intentSigner = vm.envAddress("INTENT_SIGNER_ADDRESS");
 
 
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -77,7 +83,7 @@ contract Deploy is Script {
         // OPERATOR_SHARE_BPS = 70, TREASURY_SHARE_BPS = 30 per ADR-002).
         // Supports payIntent / payIntentWithPermit / payIntentWithAuthorization
         // (ADR-003 ERC-3009 path) + batch variant.
-        SettlementHub settlementHub = new SettlementHub(usdc, treasury, guardian);
+        SettlementHub settlementHub = new SettlementHub(usdc, treasury, guardian, intentSigner);
 
         console.log("SettlementHub deployed at:", address(settlementHub));
 
@@ -100,6 +106,7 @@ contract Deploy is Script {
         // SettlementHub checks
         require(address(settlementHub.usdc()) == usdc, "SettlementHub: wrong usdc");
         require(settlementHub.treasury() == treasury, "SettlementHub: wrong treasury");
+        require(settlementHub.intentSigner() == intentSigner, "SettlementHub: wrong intentSigner");
         require(settlementHub.guardian() == guardian, "SettlementHub: guardian not set");
         require(settlementHub.PROTOCOL_FEE_BPS() == 100, "SettlementHub: wrong fee bps (expected ADR-002 100)");
         require(settlementHub.TREASURY_SHARE_BPS() == 30, "SettlementHub: wrong treasury bps");
