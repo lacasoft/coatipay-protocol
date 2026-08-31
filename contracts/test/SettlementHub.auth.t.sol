@@ -2,6 +2,7 @@
 pragma solidity ^0.8.25;
 
 import {Test} from "forge-std/Test.sol";
+import {IntentSigning} from "./helpers/IntentSigning.sol";
 import {SettlementHub} from "../src/SettlementHub.sol";
 import {Pausable} from "../src/Pausable.sol";
 import {MockUSDCAuth} from "./mocks/MockUSDCAuth.sol";
@@ -12,7 +13,7 @@ import {MockERC1271Wallet} from "./mocks/MockERC1271Wallet.sol";
 ///         so the new mock (MockUSDCAuth, with ERC-3009) doesn't disturb the
 ///         existing tests that use MockUSDCPermit (with EIP-2612).
 ///         See ADR-003 for the design rationale of payIntentWithAuthorization.
-contract SettlementHubAuthTest is Test {
+contract SettlementHubAuthTest is Test, IntentSigning {
     SettlementHub hub;
     MockUSDCAuth usdc;
 
@@ -33,7 +34,7 @@ contract SettlementHubAuthTest is Test {
         vm.warp(1_700_000_000); // ~2023-11
 
         usdc = new MockUSDCAuth();
-        hub = new SettlementHub(address(usdc), treasury, guardian);
+        hub = new SettlementHub(address(usdc), treasury, guardian, _intentSigner());
 
         (payer, payerKey) = makeAddrAndKey("payer");
         usdc.mint(payer, 10 * AMOUNT);
@@ -44,7 +45,7 @@ contract SettlementHubAuthTest is Test {
     // ── Helpers ───────────────────────────────────────────────
 
     function _registerIntent(bytes32 id) internal {
-        hub.registerIntent(id, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, id, merchant, operator, AMOUNT, expiresAt);
     }
 
     /// Sign the ReceiveWithAuthorization digest and return it as a packed
@@ -66,15 +67,18 @@ contract SettlementHubAuthTest is Test {
         signature = abi.encodePacked(r, s, v);
     }
 
+    /// El nonce NO es un parámetro: el hub exige `nonce == intentId` para que
+    /// una firma no pueda aplicarse a otro intent (F-1). Derivarlo aquí evita
+    /// que un test futuro use un nonce suelto y pruebe algo que no existe.
     function _buildAuth(
         bytes32 intentId,
         address payerAddr,
         uint256 fromKey,
         uint256 amount,
         uint256 validAfter,
-        uint256 validBefore,
-        bytes32 nonce
+        uint256 validBefore
     ) internal view returns (SettlementHub.Authorization memory auth) {
+        bytes32 nonce = intentId;
         bytes memory signature =
             _signReceiveAuth(fromKey, payerAddr, address(hub), amount, validAfter, validBefore, nonce);
         auth = SettlementHub.Authorization({
@@ -94,8 +98,7 @@ contract SettlementHubAuthTest is Test {
             payerKey,
             AMOUNT,
             block.timestamp - 1, // validAfter — already valid
-            block.timestamp + 1 hours, // validBefore
-            keccak256("nonce_default")
+            block.timestamp + 1 hours
         );
     }
 
@@ -115,7 +118,7 @@ contract SettlementHubAuthTest is Test {
 
         uint256 validAfter = block.timestamp - 1;
         uint256 validBefore = block.timestamp + 1 hours;
-        bytes32 nonce = keccak256("nonce_1271");
+        bytes32 nonce = id; // atado al intent (F-1)
 
         // `from` is the WALLET, but the signature is produced by the owner key.
         bytes memory signature =
@@ -132,9 +135,9 @@ contract SettlementHubAuthTest is Test {
 
         hub.payIntentWithAuthorization(auth);
 
-        assertEq(usdc.balanceOf(merchant), 990_000_000, "merchant 99%");
-        assertEq(usdc.balanceOf(operator), 7_000_000, "operator 0.7%");
-        assertEq(usdc.balanceOf(treasury), 3_000_000, "treasury 0.3%");
+        assertEq(usdc.balanceOf(merchant), 985_000_000, "merchant 98.5%");
+        assertEq(usdc.balanceOf(operator), 10_500_000, "operator 1.05%");
+        assertEq(usdc.balanceOf(treasury), 4_500_000, "treasury 0.45%");
         assertEq(usdc.balanceOf(address(wallet)), 9 * AMOUNT, "wallet paid 1000");
     }
 
@@ -149,7 +152,7 @@ contract SettlementHubAuthTest is Test {
         _registerIntent(INTENT_ID);
         uint256 validAfter = block.timestamp - 1;
         uint256 validBefore = block.timestamp + 1 hours;
-        bytes32 nonce = keccak256("nonce_1271_bad");
+        bytes32 nonce = INTENT_ID; // atado al intent (F-1)
 
         // Signed by the attacker, not the wallet's owner.
         bytes memory signature =
@@ -181,9 +184,9 @@ contract SettlementHubAuthTest is Test {
         hub.payIntentWithAuthorization(auth);
 
         // 1000 USDC = 990 merchant + 7 operator + 3 treasury (100 bps total, 70/30)
-        assertEq(usdc.balanceOf(merchant), 990_000_000, "merchant 99%");
-        assertEq(usdc.balanceOf(operator), 7_000_000, "operator 0.7%");
-        assertEq(usdc.balanceOf(treasury), 3_000_000, "treasury 0.3%");
+        assertEq(usdc.balanceOf(merchant), 985_000_000, "merchant 98.5%");
+        assertEq(usdc.balanceOf(operator), 10_500_000, "operator 1.05%");
+        assertEq(usdc.balanceOf(treasury), 4_500_000, "treasury 0.45%");
         assertEq(usdc.balanceOf(address(hub)), 0, "hub holds nothing");
 
         SettlementHub.Intent memory i = hub.getIntent(INTENT_ID);
@@ -199,15 +202,8 @@ contract SettlementHubAuthTest is Test {
         for (uint256 i = 0; i < 3; i++) {
             bytes32 id = keccak256(abi.encode("intent", i));
             _registerIntent(id);
-            SettlementHub.Authorization memory a = _buildAuth(
-                id,
-                payer,
-                payerKey,
-                AMOUNT,
-                block.timestamp - 1,
-                block.timestamp + 1 hours,
-                keccak256(abi.encode("n", i))
-            );
+            SettlementHub.Authorization memory a =
+                _buildAuth(id, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours);
             address submitter = makeAddr(string(abi.encodePacked("submitter_", i)));
             vm.prank(submitter);
             hub.payIntentWithAuthorization(a);
@@ -225,7 +221,7 @@ contract SettlementHubAuthTest is Test {
         SettlementHub.Authorization memory auth = _defaultAuth();
 
         vm.expectEmit(true, true, false, true);
-        emit SettlementHub.IntentSettled(INTENT_ID, payer, 990_000_000, 7_000_000, 3_000_000);
+        emit SettlementHub.IntentSettled(INTENT_ID, payer, 985_000_000, 10_500_000, 4_500_000);
         hub.payIntentWithAuthorization(auth);
     }
 
@@ -255,11 +251,13 @@ contract SettlementHubAuthTest is Test {
         SettlementHub.Authorization memory auth = _defaultAuth();
         hub.payIntentWithAuthorization(auth);
 
-        // Second attempt with a NEW nonce (else USDC would revert first
-        // with AuthorizationAlreadyUsed — we want the IntentNotPayable path).
-        SettlementHub.Authorization memory auth2 = _buildAuth(
-            INTENT_ID, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours, keccak256("nonce_2")
-        );
+        // El nonce vuelve a ser el intentId, porque ahora está atado (F-1).
+        // Se llega igualmente a IntentNotPayable: el estado del intent se
+        // comprueba ANTES de llamar a USDC, así que ese chequeo gana al mapa
+        // de nonces. Nótese la defensa doble — aunque el estado fallara,
+        // USDC rechazaría el nonce ya consumido.
+        SettlementHub.Authorization memory auth2 =
+            _buildAuth(INTENT_ID, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours);
         vm.expectRevert(SettlementHub.IntentNotPayable.selector);
         hub.payIntentWithAuthorization(auth2);
     }
@@ -270,9 +268,8 @@ contract SettlementHubAuthTest is Test {
         // Warp past the intent's expiresAt (not the authorization's validBefore)
         vm.warp(uint256(expiresAt) + 1);
 
-        SettlementHub.Authorization memory auth = _buildAuth(
-            INTENT_ID, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 10 minutes, keccak256("n")
-        );
+        SettlementHub.Authorization memory auth =
+            _buildAuth(INTENT_ID, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 10 minutes);
         vm.expectRevert(SettlementHub.IntentExpired.selector);
         hub.payIntentWithAuthorization(auth);
     }
@@ -282,15 +279,8 @@ contract SettlementHubAuthTest is Test {
     function test_PayWithAuth_Revert_AuthorizationExpired() public {
         _registerIntent(INTENT_ID);
 
-        SettlementHub.Authorization memory auth = _buildAuth(
-            INTENT_ID,
-            payer,
-            payerKey,
-            AMOUNT,
-            block.timestamp - 100,
-            block.timestamp - 1, // already expired
-            keccak256("expired_nonce")
-        );
+        SettlementHub.Authorization memory auth =
+            _buildAuth(INTENT_ID, payer, payerKey, AMOUNT, block.timestamp - 100, block.timestamp - 1);
 
         vm.expectRevert(MockUSDCAuth.AuthorizationExpired.selector);
         hub.payIntentWithAuthorization(auth);
@@ -305,8 +295,7 @@ contract SettlementHubAuthTest is Test {
             payerKey,
             AMOUNT,
             block.timestamp + 100, // not yet valid
-            block.timestamp + 200,
-            keccak256("future_nonce")
+            block.timestamp + 200
         );
 
         vm.expectRevert(MockUSDCAuth.AuthorizationNotYetValid.selector);
@@ -332,11 +321,9 @@ contract SettlementHubAuthTest is Test {
             signature: auth.signature
         });
 
-        // Sig is still valid for the same (payer, hub, AMOUNT, ...nonce) tuple,
-        // but the nonce was already burned on the first call. USDC reverts.
-        // Note: signature would actually need to match the new intentId tuple,
-        // but here we test that even if someone replays a known-good auth,
-        // USDC's nonce tracking blocks it.
+        // Reproducir una autorización buena contra OTRO intent es justo el
+        // ataque de F-1. Ahora lo corta la atadura nonce↔intent antes incluso
+        // de llegar a USDC; y si llegara, el nonce ya está consumido.
         vm.expectRevert();
         hub.payIntentWithAuthorization(auth2);
     }
@@ -352,8 +339,7 @@ contract SettlementHubAuthTest is Test {
             wrongKey, // ... but signed by the attacker
             AMOUNT,
             block.timestamp - 1,
-            block.timestamp + 1 hours,
-            keccak256("bad_sig_nonce")
+            block.timestamp + 1 hours
         );
 
         vm.expectRevert(MockUSDCAuth.InvalidSigner.selector);
@@ -375,7 +361,7 @@ contract SettlementHubAuthTest is Test {
             payer: payer, // claimed payer
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 hours,
-            nonce: keccak256("mismatch"),
+            nonce: INTENT_ID, // atado al intent (F-1)
             signature: ""
         });
 
@@ -404,8 +390,7 @@ contract SettlementHubAuthTest is Test {
             payerKey,
             AMOUNT / 2, // signer authorized only HALF the amount
             block.timestamp - 1,
-            block.timestamp + 1 hours,
-            keccak256("half_amount")
+            block.timestamp + 1 hours
         );
 
         vm.expectRevert(MockUSDCAuth.InvalidSigner.selector);
@@ -429,15 +414,7 @@ contract SettlementHubAuthTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             bytes32 id = keccak256(abi.encode("batch_ok", i));
             _registerIntent(id);
-            auths[i] = _buildAuth(
-                id,
-                payer,
-                payerKey,
-                AMOUNT,
-                block.timestamp - 1,
-                block.timestamp + 1 hours,
-                keccak256(abi.encode("n", i))
-            );
+            auths[i] = _buildAuth(id, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours);
         }
 
         uint256 settled = hub.payIntentBatchWithAuthorization(auths);
@@ -451,7 +428,7 @@ contract SettlementHubAuthTest is Test {
         }
 
         // Merchant balance reflects 5 successful payments (5 × 990 USDC)
-        assertEq(usdc.balanceOf(merchant), 5 * 990_000_000);
+        assertEq(usdc.balanceOf(merchant), 5 * 985_000_000);
     }
 
     function test_PayBatch_SkipOnFailure() public {
@@ -461,30 +438,26 @@ contract SettlementHubAuthTest is Test {
         // [0] valid
         bytes32 id0 = keccak256("batch_mix_0");
         _registerIntent(id0);
-        auths[0] =
-            _buildAuth(id0, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours, keccak256("n0"));
+        auths[0] = _buildAuth(id0, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours);
 
         // [1] expired authorization (intent registered, auth expired)
         bytes32 id1 = keccak256("batch_mix_1");
         _registerIntent(id1);
-        auths[1] = _buildAuth(id1, payer, payerKey, AMOUNT, block.timestamp - 100, block.timestamp - 1, keccak256("n1"));
+        auths[1] = _buildAuth(id1, payer, payerKey, AMOUNT, block.timestamp - 100, block.timestamp - 1);
 
         // [2] valid
         bytes32 id2 = keccak256("batch_mix_2");
         _registerIntent(id2);
-        auths[2] =
-            _buildAuth(id2, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours, keccak256("n2"));
+        auths[2] = _buildAuth(id2, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours);
 
         // [3] intent not registered
         bytes32 id3 = keccak256("batch_mix_3_not_registered");
-        auths[3] =
-            _buildAuth(id3, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours, keccak256("n3"));
+        auths[3] = _buildAuth(id3, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours);
 
         // [4] valid
         bytes32 id4 = keccak256("batch_mix_4");
         _registerIntent(id4);
-        auths[4] =
-            _buildAuth(id4, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours, keccak256("n4"));
+        auths[4] = _buildAuth(id4, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours);
 
         uint256 settled = hub.payIntentBatchWithAuthorization(auths);
         assertEq(settled, 3, "3 of 5 settled");
@@ -497,7 +470,7 @@ contract SettlementHubAuthTest is Test {
         assertEq(uint8(hub.getIntent(id2).status), uint8(SettlementHub.IntentStatus.Settled));
         assertEq(uint8(hub.getIntent(id4).status), uint8(SettlementHub.IntentStatus.Settled));
 
-        assertEq(usdc.balanceOf(merchant), 3 * 990_000_000);
+        assertEq(usdc.balanceOf(merchant), 3 * 985_000_000);
     }
 
     function test_PayBatch_AllFail() public {
@@ -506,9 +479,7 @@ contract SettlementHubAuthTest is Test {
         for (uint256 i = 0; i < 3; i++) {
             bytes32 id = keccak256(abi.encode("batch_fail", i));
             _registerIntent(id);
-            auths[i] = _buildAuth(
-                id, payer, payerKey, AMOUNT, block.timestamp - 100, block.timestamp - 1, keccak256(abi.encode("nf", i))
-            );
+            auths[i] = _buildAuth(id, payer, payerKey, AMOUNT, block.timestamp - 100, block.timestamp - 1);
         }
 
         uint256 settled = hub.payIntentBatchWithAuthorization(auths);
@@ -550,15 +521,7 @@ contract SettlementHubAuthTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             bytes32 id = keccak256(abi.encode("batch_max", i));
             _registerIntent(id);
-            auths[i] = _buildAuth(
-                id,
-                payer,
-                payerKey,
-                AMOUNT,
-                block.timestamp - 1,
-                block.timestamp + 1 hours,
-                keccak256(abi.encode("nm", i))
-            );
+            auths[i] = _buildAuth(id, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours);
         }
         // Just verify that the call doesn't revert with BatchTooLarge.
         uint256 settled = hub.payIntentBatchWithAuthorization(auths);
@@ -576,15 +539,11 @@ contract SettlementHubAuthTest is Test {
 
         bytes32 id1 = keccak256("multi_payer_1");
         _registerIntent(id1);
-        auths[0] = _buildAuth(
-            id1, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours, keccak256("multi_n1")
-        );
+        auths[0] = _buildAuth(id1, payer, payerKey, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours);
 
         bytes32 id2 = keccak256("multi_payer_2");
         _registerIntent(id2);
-        auths[1] = _buildAuth(
-            id2, payer2, payerKey2, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours, keccak256("multi_n2")
-        );
+        auths[1] = _buildAuth(id2, payer2, payerKey2, AMOUNT, block.timestamp - 1, block.timestamp + 1 hours);
 
         uint256 settled = hub.payIntentBatchWithAuthorization(auths);
         assertEq(settled, 2);

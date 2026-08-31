@@ -67,7 +67,7 @@ This is the same relationship that exists between Linux and the enterprises that
 
 Every CoatiPay nodeit is a small act of infrastructure sovereignty.
 
-A developer in Guadalajara running a nodeit on a $20/month VPS is contributing to a network that no single entity controls. The USDC they earn as routing fees is compensation for real work — keeping infrastructure running, settling transactions, maintaining uptime. Their stake is real skin in the game. Their reputation is computed publicly on a blockchain that no government or institution controls.
+A developer in Guadalajara running a nodeit on a $20/month VPS is contributing to a network that no single entity controls. The USDC they earn as routing fees is compensation for real work — keeping infrastructure running, settling transactions, maintaining uptime. Their stake is real committed capital. Their reputation is computed publicly on a blockchain that no government or institution controls.
 
 This is not a romantic notion. It is a technical description of what decentralized infrastructure actually means when implemented correctly:
 

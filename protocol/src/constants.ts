@@ -16,9 +16,7 @@ export const ROUTING_CANDIDATES = 5
 export const MAX_SETTLEMENT_MS = 30_000
 export const SCORE_CACHE_TTL_MS = 60_000
 export const DEFAULT_INTENT_TTL_SECONDS = 1800
-export const DISPUTE_WINDOW_DAYS = 7
 export const STAKE_WITHDRAWAL_TIMELOCK_DAYS = 7
-export const NODE_RESPONSE_WINDOW_HOURS = 48
 
 // Protocol invariants — single source of truth is SettlementHub.sol.
 // `fee-constants.generated.ts` is generated from it; never edit by hand.

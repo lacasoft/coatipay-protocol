@@ -2,6 +2,7 @@
 pragma solidity ^0.8.25;
 
 import {Test} from "forge-std/Test.sol";
+import {IntentSigning} from "../helpers/IntentSigning.sol";
 import {SettlementHub} from "../../src/SettlementHub.sol";
 import {MockUSDCPermit} from "../mocks/MockUSDCPermit.sol";
 import {SettlementHubHandler} from "./handlers/SettlementHubHandler.sol";
@@ -9,7 +10,7 @@ import {SettlementHubHandler} from "./handlers/SettlementHubHandler.sol";
 /// @title SettlementHub invariant tests
 /// @dev   Each invariant maps directly to a guarantee we make to merchants
 ///        and the auditor. If any fails, fund safety is broken.
-contract SettlementHubInvariants is Test {
+contract SettlementHubInvariants is Test, IntentSigning {
     SettlementHub hub;
     MockUSDCPermit usdc;
     SettlementHubHandler handler;
@@ -19,7 +20,7 @@ contract SettlementHubInvariants is Test {
 
     function setUp() public {
         usdc = new MockUSDCPermit();
-        hub = new SettlementHub(address(usdc), TREASURY, GUARDIAN);
+        hub = new SettlementHub(address(usdc), TREASURY, GUARDIAN, _intentSigner());
 
         handler = new SettlementHubHandler(hub, usdc, TREASURY);
         targetContract(address(handler));
@@ -81,10 +82,10 @@ contract SettlementHubInvariants is Test {
         uint256 amount = 1_000_000_000_000; // 1M USDC base units
         (uint256 m, uint256 o, uint256 t) = hub.previewSplit(amount);
 
-        // 99.0%, 0.7%, 0.3% of 1M = 990_000_000_000 / 7_000_000_000 / 3_000_000_000
-        assertEq(m, 990_000_000_000, "merchant 99.0%");
-        assertEq(o, 7_000_000_000, "operator 0.7%");
-        assertEq(t, 3_000_000_000, "treasury 0.3%");
+        // 99.0%, 0.7%, 0.3% of 1M = 985_000_000_000 / 10_500_000_000 / 4_500_000_000
+        assertEq(m, 985_000_000_000, "merchant 98.5%");
+        assertEq(o, 10_500_000_000, "operator 1.05%");
+        assertEq(t, 4_500_000_000, "treasury 0.45%");
         assertEq(m + o + t, amount, "split sums exactly");
     }
 
@@ -124,8 +125,12 @@ contract SettlementHubInvariants is Test {
     function invariant_immutables() public view {
         assertEq(address(hub.usdc()), address(usdc), "usdc reference mutated");
         assertEq(hub.treasury(), TREASURY, "treasury mutated");
-        assertEq(hub.PROTOCOL_FEE_BPS(), 100, "fee changed");
-        assertEq(hub.TREASURY_SHARE_BPS(), 30, "treasury share changed");
-        assertEq(hub.OPERATOR_SHARE_BPS(), 70, "operator share changed");
+        // El firmante de registros es inmutable a propósito (ADR-004): si
+        // pudiera cambiar, quien lo cambiara podría atar pagos en vuelo a un
+        // comercio de su elección.
+        assertEq(hub.intentSigner(), _intentSigner(), "intentSigner mutated");
+        assertEq(hub.PROTOCOL_FEE_BPS(), 150, "fee changed");
+        assertEq(hub.TREASURY_SHARE_BPS(), 45, "treasury share changed");
+        assertEq(hub.OPERATOR_SHARE_BPS(), 105, "operator share changed");
     }
 }

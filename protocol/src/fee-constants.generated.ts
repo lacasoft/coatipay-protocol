@@ -11,7 +11,7 @@
 // must show exactly what the contract will accept. This file mirrors the
 // Solidity `constant` values so they cannot drift.
 
-export const PROTOCOL_FEE_BPS = 100
-export const TREASURY_SHARE_BPS = 30
-export const OPERATOR_SHARE_BPS = 70
+export const PROTOCOL_FEE_BPS = 150
+export const TREASURY_SHARE_BPS = 45
+export const OPERATOR_SHARE_BPS = 105
 export const MAX_BATCH_SIZE = 50

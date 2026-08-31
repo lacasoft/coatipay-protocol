@@ -2,11 +2,12 @@
 pragma solidity ^0.8.25;
 
 import {Test} from "forge-std/Test.sol";
+import {IntentSigning} from "./helpers/IntentSigning.sol";
 import {SettlementHub} from "../src/SettlementHub.sol";
 import {Pausable} from "../src/Pausable.sol";
 import {MockUSDCPermit} from "./mocks/MockUSDCPermit.sol";
 
-contract SettlementHubTest is Test {
+contract SettlementHubTest is Test, IntentSigning {
     SettlementHub hub;
     MockUSDCPermit usdc;
 
@@ -23,7 +24,7 @@ contract SettlementHubTest is Test {
 
     function setUp() public {
         usdc = new MockUSDCPermit();
-        hub = new SettlementHub(address(usdc), treasury, guardian);
+        hub = new SettlementHub(address(usdc), treasury, guardian, _intentSigner());
 
         (payer, payerKey) = makeAddrAndKey("payer");
         usdc.mint(payer, 10 * AMOUNT);
@@ -41,25 +42,25 @@ contract SettlementHubTest is Test {
 
     function test_Constructor_Revert_ZeroUsdc() public {
         vm.expectRevert(SettlementHub.ZeroAddress.selector);
-        new SettlementHub(address(0), treasury, guardian);
+        new SettlementHub(address(0), treasury, guardian, _intentSigner());
     }
 
     function test_Constructor_Revert_ZeroTreasury() public {
         vm.expectRevert(SettlementHub.ZeroAddress.selector);
-        new SettlementHub(address(usdc), address(0), guardian);
+        new SettlementHub(address(usdc), address(0), guardian, _intentSigner());
     }
 
     function test_Constructor_Revert_ZeroGuardian() public {
         vm.expectRevert(Pausable.ZeroGuardian.selector);
-        new SettlementHub(address(usdc), treasury, address(0));
+        new SettlementHub(address(usdc), treasury, address(0), _intentSigner());
     }
 
     // ── Constants ─────────────────────────────────────────────
 
     function test_Constants_FeeMath() public view {
-        assertEq(hub.PROTOCOL_FEE_BPS(), 100, "1.0% total");
-        assertEq(hub.TREASURY_SHARE_BPS(), 30, "0.3% to treasury");
-        assertEq(hub.OPERATOR_SHARE_BPS(), 70, "0.7% to operator");
+        assertEq(hub.PROTOCOL_FEE_BPS(), 150, "1.5% total");
+        assertEq(hub.TREASURY_SHARE_BPS(), 45, "0.45% to treasury");
+        assertEq(hub.OPERATOR_SHARE_BPS(), 105, "1.05% to operator");
         assertEq(hub.PROTOCOL_FEE_BPS(), hub.TREASURY_SHARE_BPS() + hub.OPERATOR_SHARE_BPS());
     }
 
@@ -69,7 +70,7 @@ contract SettlementHubTest is Test {
         vm.expectEmit(true, true, true, true);
         emit SettlementHub.IntentRegistered(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
 
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
 
         SettlementHub.Intent memory i = hub.getIntent(INTENT_ID);
         assertEq(i.merchant, merchant);
@@ -80,38 +81,45 @@ contract SettlementHubTest is Test {
     }
 
     function test_RegisterIntent_Revert_AlreadyRegistered() public {
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
 
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
         vm.expectRevert(SettlementHub.AlreadyRegistered.selector);
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_ZeroMerchant() public {
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, address(0), operator, AMOUNT, expiresAt);
         vm.expectRevert(SettlementHub.ZeroAddress.selector);
-        hub.registerIntent(INTENT_ID, address(0), operator, AMOUNT, expiresAt);
+        hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_ZeroOperator() public {
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, address(0), AMOUNT, expiresAt);
         vm.expectRevert(SettlementHub.ZeroAddress.selector);
-        hub.registerIntent(INTENT_ID, merchant, address(0), AMOUNT, expiresAt);
+        hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_ZeroAmount() public {
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, operator, 0, expiresAt);
         vm.expectRevert(SettlementHub.ZeroAmount.selector);
-        hub.registerIntent(INTENT_ID, merchant, operator, 0, expiresAt);
+        hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_PastExpiry() public {
+        SettlementHub.IntentRegistration memory reg =
+            _regOf(hub, INTENT_ID, merchant, operator, AMOUNT, uint64(block.timestamp));
         vm.expectRevert(SettlementHub.InvalidExpiry.selector);
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, uint64(block.timestamp));
+        hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_WhenPaused() public {
         vm.prank(guardian);
         hub.pause();
 
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_AnyoneCanCall() public {
@@ -119,7 +127,7 @@ contract SettlementHubTest is Test {
         // gets fees. A "registrar" pays gas with no return.
         address randomCaller = makeAddr("random");
         vm.prank(randomCaller);
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
 
         SettlementHub.Intent memory i = hub.getIntent(INTENT_ID);
         assertEq(i.operator, operator, "operator field is the recorded one, not msg.sender");
@@ -142,7 +150,7 @@ contract SettlementHubTest is Test {
             exps[i] = expiresAt;
         }
 
-        uint256 registered = hub.registerIntentBatch(ids, merchants, operators, amounts, exps);
+        uint256 registered = hub.registerIntentBatch(_regsOf(hub, ids, merchants, operators, amounts, exps));
         assertEq(registered, 3);
 
         for (uint256 i = 0; i < 3; i++) {
@@ -154,7 +162,7 @@ contract SettlementHubTest is Test {
     function test_RegisterIntentBatch_SkipDuplicates() public {
         // Pre-register one intent
         bytes32 dupeId = keccak256("dupe");
-        hub.registerIntent(dupeId, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, dupeId, merchant, operator, AMOUNT, expiresAt);
 
         // Batch includes the dupe — should be skipped, others succeed
         bytes32[] memory ids = new bytes32[](3);
@@ -173,25 +181,14 @@ contract SettlementHubTest is Test {
             exps[i] = expiresAt;
         }
 
-        uint256 registered = hub.registerIntentBatch(ids, merchants, operators, amounts, exps);
+        uint256 registered = hub.registerIntentBatch(_regsOf(hub, ids, merchants, operators, amounts, exps));
         assertEq(registered, 2, "dupe skipped");
-    }
-
-    function test_RegisterIntentBatch_Revert_LengthMismatch() public {
-        bytes32[] memory ids = new bytes32[](2);
-        address[] memory merchants = new address[](3); // wrong length
-        address[] memory operators = new address[](2);
-        uint256[] memory amounts = new uint256[](2);
-        uint64[] memory exps = new uint64[](2);
-
-        vm.expectRevert(SettlementHub.BatchLengthMismatch.selector);
-        hub.registerIntentBatch(ids, merchants, operators, amounts, exps);
     }
 
     // ── payIntent ─────────────────────────────────────────────
 
     function _registerDefault() internal {
-        hub.registerIntent(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
     }
 
     function test_PayIntent_Success() public {
@@ -201,9 +198,9 @@ contract SettlementHubTest is Test {
         usdc.approve(address(hub), AMOUNT);
 
         // Expected split: 1000 USDC = 990 merchant + 7 operator + 3 treasury
-        uint256 treasuryFee = (AMOUNT * 30) / 10_000; // 0.3% = 3_000_000
-        uint256 operatorFee = (AMOUNT * 70) / 10_000; // 0.7% = 7_000_000
-        uint256 merchantAmount = AMOUNT - treasuryFee - operatorFee; // 990_000_000
+        uint256 treasuryFee = (AMOUNT * 45) / 10_000; // 0.45% = 4_500_000
+        uint256 operatorFee = (AMOUNT * 105) / 10_000; // 1.05% = 10_500_000
+        uint256 merchantAmount = AMOUNT - treasuryFee - operatorFee; // 985_000_000
 
         vm.expectEmit(true, true, false, true);
         emit SettlementHub.IntentSettled(INTENT_ID, payer, merchantAmount, operatorFee, treasuryFee);
@@ -213,8 +210,8 @@ contract SettlementHubTest is Test {
 
         // Verify split
         assertEq(usdc.balanceOf(merchant), merchantAmount, "merchant gets 99.0%");
-        assertEq(usdc.balanceOf(operator), operatorFee, "operator gets 0.7%");
-        assertEq(usdc.balanceOf(treasury), treasuryFee, "treasury gets 0.3%");
+        assertEq(usdc.balanceOf(operator), operatorFee, "operator gets 1.05%");
+        assertEq(usdc.balanceOf(treasury), treasuryFee, "treasury gets 0.45%");
         assertEq(usdc.balanceOf(address(hub)), 0, "contract holds nothing post-settle");
 
         // Status updated
@@ -305,9 +302,9 @@ contract SettlementHubTest is Test {
         hub.payIntentWithPermit(INTENT_ID, deadline, v, r, s);
 
         // Same split as payIntent
-        assertEq(usdc.balanceOf(merchant), 990_000_000);
-        assertEq(usdc.balanceOf(operator), 7_000_000);
-        assertEq(usdc.balanceOf(treasury), 3_000_000);
+        assertEq(usdc.balanceOf(merchant), 985_000_000);
+        assertEq(usdc.balanceOf(operator), 10_500_000);
+        assertEq(usdc.balanceOf(treasury), 4_500_000);
     }
 
     function test_PayIntentWithPermit_BadSignature_FallsThroughToTransferFromRevert() public {
@@ -364,7 +361,7 @@ contract SettlementHubTest is Test {
         hub.payIntentWithPermit(INTENT_ID, deadline, v, r, s);
 
         // Settlement happened correctly
-        assertEq(usdc.balanceOf(merchant), 990_000_000, "merchant got paid");
+        assertEq(usdc.balanceOf(merchant), 985_000_000, "merchant got paid");
     }
 
     function test_PayIntentWithPermit_Revert_IntentNotFound() public {
@@ -453,11 +450,13 @@ contract SettlementHubTest is Test {
     }
 
     function test_PreviewSplit_RoundsDown() public view {
-        // 1000 base units. Treasury = 3, operator = 7, merchant = 990.
+        // 1000 unidades base. Treasury = 4 (45 bps redondeando a la baja),
+        // operador = 10 (105 bps), comercio = 986. El redondeo a la baja
+        // favorece al comercio: nunca se pierde polvo ni se cobra de más.
         (uint256 m, uint256 o, uint256 t) = hub.previewSplit(1000);
-        assertEq(m, 990);
-        assertEq(o, 7);
-        assertEq(t, 3);
+        assertEq(m, 986);
+        assertEq(o, 10);
+        assertEq(t, 4);
         assertEq(m + o + t, 1000, "no dust lost");
     }
 
@@ -484,13 +483,15 @@ contract SettlementHubTest is Test {
         vm.stopPrank();
 
         // New registration is blocked
+        SettlementHub.IntentRegistration memory reg =
+            _regOf(hub, keccak256("new"), merchant, operator, AMOUNT, expiresAt);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        hub.registerIntent(keccak256("new"), merchant, operator, AMOUNT, expiresAt);
+        hub.registerIntent(reg);
 
         // Unpause restores registration
         vm.prank(guardian);
         hub.unpause();
-        hub.registerIntent(keccak256("new"), merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, keccak256("new"), merchant, operator, AMOUNT, expiresAt);
     }
 
     // ── Reentrancy ────────────────────────────────────────────
@@ -530,7 +531,7 @@ contract SettlementHubTest is Test {
         usdc.mint(payer, amount);
 
         bytes32 fuzzId = keccak256(abi.encode("fuzz", amount));
-        hub.registerIntent(fuzzId, merchant, operator, amount, expiresAt);
+        _reg(hub, fuzzId, merchant, operator, amount, expiresAt);
 
         vm.startPrank(payer);
         usdc.approve(address(hub), amount);

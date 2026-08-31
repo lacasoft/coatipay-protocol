@@ -22,7 +22,7 @@ Antes de la especificación técnica, esta sección documenta por qué el protoc
 
 La invariante de protocolo más importante. Los nodes son observadores y confirmadores — detectan transferencias on-chain y las confirman a la capa de API. Nunca retienen ni intermedian fondos.
 
-Este diseño fue elegido porque elimina toda una clase de ataques: un node malicioso no puede robar fondos en tránsito, porque los fondos nunca están en tránsito a través del node. La superficie de ataque se limita a: (a) un node mintiendo sobre una liquidación que no ocurrió (detectado por dispute), o (b) un node quedándose offline después de la asignación (detectado por timelock + dispute).
+Este diseño fue elegido porque elimina toda una clase de ataques: un node malicioso no puede robar fondos en tránsito, porque los fondos nunca están en tránsito a través del node. La superficie de ataque se limita a: (a) un node mintiendo sobre una liquidación que no ocurrió — lo desmiente el evento on-chain `IntentSettled`, que es la única fuente de verdad del settlement, o (b) un node quedándose offline tras la asignación — el intent caduca en `expires_at` y nadie cobra fee, porque el fee del nodeit solo existe dentro de la transacción que liquida.
 
 Cualquier cambio de protocolo que haga pasar fondos a través de los nodes debe tratarse como una regresión crítica, no como una feature.
 
@@ -48,7 +48,7 @@ USDC es aburrido. Es 1:1 con USD, redimible por Circle, y aceptado en todas part
 
 Los operadores de nodes hacen el trabajo — corren la infraestructura, mantienen el uptime, apuestan capital. Reciben la mayoría de los fees. La asignación del 30% al treasury es lo mínimo necesario para que el treasury sea **auto-sostenible** a volúmenes alcanzables (~$10M/mes vs ~$30M/mes con el split 80/20 anterior) — los nodes se benefician colectivamente del trabajo continuo que el treasury financia: auditorías, desarrollo de SDK, documentación, crecimiento comunitario.
 
-Si la parte del treasury fuera mayor, los operadores tendrían menos incentivo para correr nodes. Si fuera menor, el proyecto necesitaría rondas de financiamiento externo recurrentes para cubrir bienes públicos básicos. 70/30 es el equilibrio que mantiene viables a ambos lados (ver ADR-002 para el análisis económico completo).
+Si la parte del treasury fuera mayor, los operadores tendrían menos incentivo para correr nodes. Si fuera menor, el proyecto necesitaría rondas de financiamiento externo recurrentes para cubrir bienes públicos básicos. 70/30 es el equilibrio que mantiene viables a ambos lados (ver ADR-002 para el análisis económico completo; ADR-005 sube la comisión total a 150 bps y deja el reparto intacto).
 
 ### Por qué x402 es de primera clase, no un plugin
 
@@ -178,10 +178,10 @@ Node (observa, confirma, gana fee de)     ──────────┘
 Fee split por transacción:
 ```
 Monto = 1,000,000 (1.00 USDC)
-Fee total = 10,000 (1.0% = 100 bps)
-  └─ Parte del node (70%) = 7,000
-  └─ Treasury (30%) = 3,000
-El comercio recibe = 990,000
+Fee total = 15,000 (1.5% = 150 bps)
+  └─ Parte del node (70%) = 10,500
+  └─ Treasury (30%) = 4,500
+El comercio recibe = 985,000
 ```
 
 Para micropagos (x402, sub-cent): el split aplica igual on-chain. El payer ya es **gasless** vía
@@ -190,15 +190,15 @@ necesita ningún paymaster). Lo que limita el sub-centavo no es el gas del payer
 económico de cada liquidación on-chain: con gas de Base (~$0.0036 por intent) el break-even
 ronda **~$0.30/llamada**. Los micropagos **sub-centavo** ($0.001) solo se vuelven rentables con
 **netting off-chain** (acumular muchas llamadas de un mismo payer y liquidar la suma en una sola
-tx) — está en la hoja de ruta, no implementado hoy. Ver ADR-002 para el análisis económico.
+tx) — está en la hoja de ruta, no implementado hoy. Ver ADR-002 para el análisis económico y ADR-005 para la revisión de la comisión a 150 bps.
 
 ---
 
 ## 4. Protocolo On-Chain
 
-Cuatro smart contracts en Base definen las reglas del protocolo: `NodeRegistry`, `StakeManager`, `DisputeResolver` y `SettlementHub`. Todos son **no actualizables** (sin patrones proxy) — las reglas no se pueden cambiar después del deploy.
+Tres smart contracts en Base definen las reglas del protocolo: `NodeRegistry`, `StakeManager` y `SettlementHub`. Todos son **no actualizables** (sin patrones proxy) — las reglas no se pueden cambiar después del deploy.
 
-**Sobre pausa y guardian:** los contratos NO tienen admin keys arbitrarias (nadie puede mover fondos ni reescribir estado), pero **sí tienen una pausa de emergencia** vía un `Pausable` base controlado por un guardian. La pausa solo gatea operaciones de *registro* y *escritura nueva* (p. ej. `register`, `openDispute`) — **no** detiene liquidaciones en vuelo. El guardian es un **multisig 3-de-5**, nunca una llave única, mantenido por la Fundación (sin migración a gobernanza on-chain comprometida). Esta es una decisión de diseño deliberada: un exploit descubierto post-deploy sin mecanismo de pausa significa pérdida total para los afectados; el compromiso pragmático es pausa-gobernada-por-multisig, no ausencia de pausa. (Ver `audits/adr/` y el whitepaper §3.2 para el razonamiento completo.)
+**Sobre pausa y guardian:** los contratos NO tienen admin keys arbitrarias (nadie puede mover fondos ni reescribir estado), pero **sí tienen una pausa de emergencia** vía un `Pausable` base controlado por un guardian. La pausa solo gatea operaciones de *registro* y *escritura nueva* (p. ej. `register`, `registerIntent`) — **no** detiene liquidaciones en vuelo. El guardian es un **multisig 3-de-5**, nunca una llave única, mantenido por la Fundación (sin migración a gobernanza on-chain comprometida). Esta es una decisión de diseño deliberada: un exploit descubierto post-deploy sin mecanismo de pausa significa pérdida total para los afectados; el compromiso pragmático es pausa-gobernada-por-multisig, no ausencia de pausa. (Ver `audits/adr/` y el whitepaper §3.2 para el razonamiento completo.)
 
 ### 4.1 NodeRegistry.sol
 
@@ -230,7 +230,9 @@ El guardian puede aumentar `minStake` vía `NodeRegistry.updateMinStake(uint256)
 
 ### 4.2 StakeManager.sol
 
-**Responsabilidad:** Depósitos de stake, retiros y slashing.
+**Responsabilidad:** Depósitos de stake y retiros con timelock.
+
+El stake es **fianza y barrera anti-Sybil**: acredita a un operador para entrar en el registro y le obliga a comprometer capital. **No se puede confiscar** — el protocolo no tiene castigo económico (ver ADR-004). No existe ninguna llave, ni siquiera la del guardian, capaz de mover el stake de un operador: cada depósito entra desde `msg.sender` y solo puede salir hacia `msg.sender`.
 
 ```solidity
 struct StakeInfo {
@@ -239,46 +241,43 @@ struct StakeInfo {
     uint256 unlockAt;
 }
 
-function depositFor(address operator, uint256 amount) external; // only NodeRegistry
+uint256 public constant WITHDRAWAL_TIMELOCK = 7 days;
+
 function deposit(uint256 amount) external;
 function requestWithdrawal(uint256 amount) external;
 function executeWithdrawal() external;
-function slash(address operator, uint256 amount, bytes32 disputeId) external; // only DisputeResolver
+function getStakeInfo(address operator) external view returns (StakeInfo memory);
 ```
 
-**Timelock de retiro:** 7 días. Igual a la ventana de dispute — crea un sistema cerrado donde un node no puede retirar antes de que se pueda resolver una dispute.
+**Timelock de retiro:** 7 días entre `requestWithdrawal()` y `executeWithdrawal()`. Ya no se calibra contra ninguna ventana de adjudicación: no hay nada que adjudicar. Su motivo es **dar tiempo a detectar que un operador se va**. `requestWithdrawal()` descuenta el importe de `staked` en el acto y emite `WithdrawalRequested`, así que la salida es visible on-chain una semana antes de que el USDC se mueva: cualquiera puede leer `getStakeInfo()` y ver que el colateral bajó, y el routing puede dejar de asignarle intents si queda por debajo de `minStake`. Un operador no puede vaciar su stake y desaparecer en el mismo bloque.
 
-### 4.3 DisputeResolver.sol
-
-**Responsabilidad:** Adjudicación de disputes y decisiones de slashing de stake.
-
-```solidity
-enum DisputeStatus  { Open, NodeResponded, Resolved, Expired }
-enum DisputeOutcome { None, MerchantWins, NodeWins }
-
-function openDispute(bytes32 paymentIntentId, address nodeOperator, string calldata evidenceCid) external;
-function respondToDispute(bytes32 disputeId, string calldata counterEvidenceCid) external;
-function vote(bytes32 disputeId, DisputeOutcome outcome) external; // only arbiters
-function expireDispute(bytes32 disputeId) external; // anyone can call after 48h window
-```
-
-**Arbitraje de Fase 1:** Multisig 3-de-5 manejado por el core team/Fundación. Sin migración a gobernanza on-chain comprometida.
-
-**Ventana de respuesta del node:** 48 horas desde `openedAt`. Después de esta ventana, cualquiera puede llamar `expireDispute()`, que auto-slashea al node.
-
-### 4.4 SettlementHub.sol
+### 4.3 SettlementHub.sol
 
 **Responsabilidad:** El contrato que **mueve los fondos**. Jala USDC del payer y lo splittea atómicamente on-chain (comercio + node operator + treasury) en una sola transacción. Introducido en ADR-003 como el corazón del settlement gasless ERC-3009.
 
 ```solidity
-uint16  public constant PROTOCOL_FEE_BPS   = 100;  // 1.0% fee total
-uint16  public constant TREASURY_SHARE_BPS = 30;   // 0.3% al treasury
-uint16  public constant OPERATOR_SHARE_BPS = 70;   // 0.7% al node operator
+uint16  public constant PROTOCOL_FEE_BPS   = 150;  // 1.5% fee total
+uint16  public constant TREASURY_SHARE_BPS = 45;   // 0.45% al treasury
+uint16  public constant OPERATOR_SHARE_BPS = 105;  // 1.05% al node operator
 uint256 public constant MAX_BATCH_SIZE     = 50;   // cap del batch (x402)
 
-// El node operator registra el intent on-chain (lazy, en el primer claim).
-function registerIntent(bytes32 intentId, address merchant, address operator, uint256 amount, uint64 expiresAt) external;
-function registerIntentBatch(...) external;
+// Única dirección cuya firma autoriza a registrar un intent. Inmutable.
+// Cartera normal o contrato ERC-1271 — en producción, un multisig.
+address public immutable intentSigner;
+
+// El nodeit registra el intent on-chain (lazy, en el primer claim), pero el
+// contenido lo autoriza la plataforma con una firma EIP-712 de `intentSigner`.
+struct IntentRegistration {
+    bytes32 intentId;
+    address merchant;
+    address operator;
+    uint256 amount;
+    uint64  expiresAt;
+    bytes   signature;   // EIP-712 de intentSigner sobre los cinco campos anteriores
+}
+
+function registerIntent(IntentRegistration calldata reg) external;
+function registerIntentBatch(IntentRegistration[] calldata regs) external returns (uint256 registered);
 
 // Tres caminos de pago. El gasless (ERC-3009) es el de Fase 1:
 function payIntent(bytes32 intentId) external;                       // approve + pay
@@ -292,9 +291,18 @@ event IntentRegistered(...);
 event IntentSettled(...);   // fuente de verdad off-chain del settlement
 ```
 
-**Split de fondos (atómico, on-chain):** sobre un monto `amount`, el contrato transfiere `99%` al comercio, `0.7%` al node operator y `0.3%` al treasury, en la misma transacción. El comercio absorbe cualquier residuo de redondeo (nunca pierde fondos por debajo del split). Las constantes son `public constant` — no configurables, no hay forma de cambiar el fee post-deploy.
+**Registro firmado (EIP-712):** el nodeit sigue enviando la transacción de registro y pagando su gas, pero **no puede alterar lo que registra**. `registerIntent` recibe un `IntentRegistration` y revierte con `InvalidIntentSignature` si la firma de `intentSigner` no cubre exactamente `(intentId, merchant, operator, amount, expiresAt)`. El lote la exige **por elemento**: no es un atajo para registrar sin autorización. La verificación usa `SignatureChecker`, así que la firma puede venir de una cartera normal (ECDSA) o de un **contrato ERC-1271** — un multisig. Es una centralización explícita: la plataforma es autoritativa sobre el binding intent→comercio (ver ADR-004).
 
-**Camino gasless (ERC-3009):** el payer firma off-chain una autorización `ReceiveWithAuthorization` (EIP-712); el node operator la submitea vía `payIntentWithAuthorization` y paga el gas. USDC fuerza `msg.sender == to`, lo que elimina el front-running on-chain de la autorización. El nonce se quema en el primer uso (replay protection nativa de USDC). La autorización viaja como una firma `bytes` cruda y se liquida con el overload `receiveWithAuthorization(…, bytes)` de USDC (`SignatureChecker`), así que **funciona tanto para wallets EOA (firma ECDSA) como para smart wallets ERC-1271** (p. ej. Coinbase Smart Wallet). Las cuentas *counterfactual* (smart wallet sin desplegar → firma ERC-6492) son trabajo de una fase posterior.
+**`intentSigner` es inmutable, y en producción debe ser un multisig.** La dirección no se puede cambiar, y eso no se negocia: si el guardian pudiera rotarla, tendría capacidad de atar pagos en vuelo a un comercio de su elección, que es justamente la potestad de mover fondos que el diseño le niega. Lo que sí depende de con qué se despliegue es el **coste** de esa inmutabilidad:
+
+- **Con una cartera normal (EOA):** una sola llave basta para autorizar, y perderla o que se filtre obliga a **pausar y redesplegar el hub entero**. El contrato admite esta configuración solo por compatibilidad.
+- **Con un multisig (ERC-1271):** la dirección sigue siendo inmutable —el guardian no la toca— pero **los firmantes se rotan por dentro del multisig**, sin tocar el contrato. Y para autorizar hace falta alcanzar el umbral, no una sola llave. El peor escenario pasa de «redesplegar el hub» a «retirar un firmante del Safe».
+
+Por eso la recomendación para producción es desplegar `intentSigner` como multisig. Su dirección se pasa al constructor y no se puede cambiar después, así que decidir umbral y custodia de las llaves forma parte del despliegue, no es un ajuste posterior. La pausa sigue siendo la palanca de emergencia para el caso en que se comprometa el umbral entero. `contracts/test/SettlementHub.multisigSigner.t.sol` cubre esta configuración con un multisig 2-de-3: seis tests, incluido el de retirar una llave comprometida sin redesplegar, y el que comprueba que la ruta de cartera normal sigue funcionando.
+
+**Split de fondos (atómico, on-chain):** sobre un monto `amount`, el contrato transfiere `98.5%` al comercio, `1.05%` al node operator y `0.45%` al treasury, en la misma transacción. El comercio absorbe cualquier residuo de redondeo (nunca pierde fondos por debajo del split). Las constantes son `public constant` — no configurables, no hay forma de cambiar el fee post-deploy.
+
+**Camino gasless (ERC-3009):** el payer firma off-chain una autorización `ReceiveWithAuthorization` (EIP-712); el node operator la submitea vía `payIntentWithAuthorization` y paga el gas. USDC fuerza `msg.sender == to`, lo que elimina el front-running on-chain de la autorización. **La autorización va atada a su intent:** el contrato exige `nonce == intentId` y revierte con `AuthorizationNotBoundToIntent` en caso contrario, así que una firma solo sirve para el intent cuyo identificador lleva como nonce y quien envía la transacción no puede redirigir el dinero. El nonce se quema en el primer uso (replay protection nativa de USDC). La autorización viaja como una firma `bytes` cruda y se liquida con el overload `receiveWithAuthorization(…, bytes)` de USDC (`SignatureChecker`), así que **funciona tanto para wallets EOA (firma ECDSA) como para smart wallets ERC-1271** (p. ej. Coinbase Smart Wallet). Las cuentas *counterfactual* (smart wallet sin desplegar → firma ERC-6492) son trabajo de una fase posterior.
 
 **Eventos:** `IntentSettled` es la **fuente de verdad** del settlement — el `SettlementEventWatcher` off-chain lo observa y marca el payment intent como `settled` + dispara el webhook. El protocolo nunca considera un pago liquidado hasta que este evento on-chain se confirma.
 
@@ -314,11 +322,9 @@ created ──► settled
 created ──► cancelled
 created ──► expired
 created ──► failed
-
-settled ──► disputed
 ```
 
-Estados terminales adicionales: `cancelled` (cancelado por el comercio), `expired` (pasó `expires_at`), `failed` (el settlement on-chain no se completó). `disputed` es el estado del flujo de disputas (ver §4.3).
+`settled` es el único estado terminal de éxito y es definitivo: una vez emitido `IntentSettled` no hay ninguna transición posterior, porque el protocolo no tiene reversos ni adjudicación (ver ADR-004). Estados terminales adicionales: `cancelled` (cancelado por el comercio), `expired` (pasó `expires_at`), `failed` (el settlement on-chain no se completó).
 
 ### 5.2 Objeto Payment Intent
 
@@ -343,7 +349,7 @@ interface PaymentIntent {
 
 ### 5.3 Reglas de Transición
 
-**created → settled** — el evento on-chain `IntentSettled` emitido por `SettlementHub.sol` se confirma. El payer firmó una autorización ERC-3009, el daemon del nodeit la submiteó al contrato, y el contrato jaló el USDC del payer y lo splitteó atómicamente (99% al comercio, 0.7% al nodeit, 0.3% al treasury). Se dispara el webhook `payment_intent.settled`.
+**created → settled** — el evento on-chain `IntentSettled` emitido por `SettlementHub.sol` se confirma. El payer firmó una autorización ERC-3009, el daemon del nodeit la submiteó al contrato, y el contrato jaló el USDC del payer y lo splitteó atómicamente (98.5% al comercio, 1.05% al nodeit, 0.45% al treasury). Se dispara el webhook `payment_intent.settled`.
 
 **created → expired** — se alcanza el timestamp `expires_at` sin que el intent llegue a `settled`.
 
@@ -351,9 +357,7 @@ interface PaymentIntent {
 
 **created → failed** — el settlement on-chain no se completó (p. ej., la autorización fue rechazada por el contrato).
 
-**settled → disputed** — el comercio abre una disputa dentro de los 7 días posteriores a `settled_at`.
-
-> **Estado del flujo de disputas (Fase 2 — no implementado en la API):** los contratos on-chain de disputas (`DisputeResolver.sol`, §4.3) están desplegados, y los tipos de evento `dispute.opened` / `dispute.resolved` existen en el esquema de webhooks. Pero el **endpoint REST de la API para abrir disputas todavía no está implementado** — el flujo merchant→API→on-chain de disputas es trabajo de Fase 2. La transición `settled → disputed` describe el diseño objetivo, no una capacidad en vivo. (Mismo tratamiento que el motor de routing en §7.)
+**No hay transiciones desde `settled`.** El settlement es atómico y definitivo: el contrato reparte los fondos en la misma transacción en la que los recibe, y no existe camino on-chain ni de API para revertirlo.
 
 ---
 
@@ -377,7 +381,7 @@ El settlement no se hace por un endpoint HTTP expuesto del nodeit. El flujo es:
 1. El payer firma off-chain una autorización EIP-712 `ReceiveWithAuthorization`.
 2. El SDK envía esa autorización a la API, que la encola.
 3. El daemon del nodeit poletea la cola de la API, reclama la autorización y submitea `payIntentWithAuthorization` al contrato `SettlementHub.sol`. El nodeit paga el gas de esta transacción.
-4. `SettlementHub.sol` jala el USDC del payer y lo splittea atómicamente on-chain (99% comercio, 0.7% nodeit, 0.3% treasury) y emite el evento `IntentSettled`.
+4. `SettlementHub.sol` jala el USDC del payer y lo splittea atómicamente on-chain (98.5% comercio, 1.05% nodeit, 0.45% treasury) y emite el evento `IntentSettled`.
 5. Un event watcher confirma el settlement leyendo el evento `IntentSettled` on-chain, y la API marca el intent como `settled` y dispara el webhook.
 
 El nodeit nunca retiene fondos en ningún momento: el USDC se mueve del payer al comercio dentro de una sola transacción atómica del contrato.
@@ -406,14 +410,15 @@ Cuando haya múltiples nodeits registrados, la API seleccionará un nodeit por i
 ### 7.1 Score del Node
 
 ```
-Score = (uptime_weight × 0.30) + (speed_weight × 0.30)
-      + (stake_weight × 0.20) + (disputes_weight × 0.20)
+Score = (uptime_weight × 0.40) + (speed_weight × 0.40)
+      + (stake_weight × 0.20)
 
-uptime_weight   = uptime_30d (0.0–1.0)
-speed_weight    = 1 - (avg_settlement_ms / 30000), min 0
-stake_weight    = min(node_stake / 10_000_000_000, 1.0)
-disputes_weight = disputes_won / max(disputes_total, 1)
+uptime_weight = uptime_30d (0.0–1.0)
+speed_weight  = 1 - (avg_settlement_ms / 30000), min 0
+stake_weight  = min(node_stake / 10_000_000_000, 1.0)
 ```
+
+**Sobre el reparto de pesos:** el 0.20 que antes pesaba el historial de adjudicaciones se reparte **entre uptime y velocidad** (0.30 → 0.40 cada uno), no sobre el stake. La razón es que ese término puntuaba conducta juzgada, y sin adjudicación no queda ningún registro de conducta que puntuar: lo único observable de un nodeit es lo que hace — estar vivo y liquidar rápido. El stake se queda en **0.20 a propósito**: es una barrera de entrada y un compromiso de capital, no una métrica de desempeño, y subirle el peso equivaldría a dejar que el capital compre routing.
 
 Los scores se cachean en Redis, refrescados cada 60 segundos.
 
@@ -425,7 +430,6 @@ Aplicados antes del scoring. Los nodes que fallan cualquier filtro son excluidos
 - No soporta el chain solicitado
 - `capacity < 0.1`
 - Round-trip a `/health` > 5 segundos
-- Tiene una dispute abierta sin resolver
 - No está en la whitelist del comercio (si está configurada)
 - Está en la blacklist del comercio (si está configurada)
 - Por debajo del stake/score mínimo del comercio (si está configurado)
@@ -482,10 +486,10 @@ export const GET = relay.x402.handler({
 | Amenaza | Mitigación |
 |---|---|
 | Node roba fondos | Los fondos nunca pasan por los nodes — siempre payer-a-comercio |
-| Node enruta a dirección equivocada | La dirección del comercio proviene de la capa de API, no del node |
-| Node cobra fee sin liquidar | Dispute + slashing de stake |
+| Node enruta a dirección equivocada | La dirección del comercio la fija la capa de API y viaja **firmada** (EIP-712 de `intentSigner`): el nodeit envía el registro pero no puede cambiar su contenido |
+| Node cobra fee sin liquidar | No puede: el 1.05% del nodeit sale del **mismo split atómico** que paga al comercio, en la misma transacción. Sin liquidación no hay fee que cobrar |
 | Ataque Sybil | `minStake` de 100 USDC (mainnet) hace que Sybil sea costoso |
-| Node exit scam | Timelock de retiro de 7 días |
+| Node exit scam | Timelock de retiro de 7 días: la salida es visible on-chain una semana antes de que el stake se mueva |
 | Double-spend | El settlement es una transacción atómica de `SettlementHub.sol`; el intent pasa a `settled` solo al confirmarse el evento `IntentSettled` on-chain |
 | Replay de x402 | tx_hash almacenado en x402_payments_used después del primer uso |
 | Replay de autorización ERC-3009 | El `nonce` de la autorización `ReceiveWithAuthorization` se consume on-chain en el primer uso |
@@ -521,7 +525,6 @@ export const GET = relay.x402.handler({
 | `amount_too_small` | 400 | Monto por debajo del mínimo del chain |
 | `amount_too_large` | 400 | Monto excede la capacidad del node |
 | `invalid_webhook_url` | 400 | URL del webhook no alcanzable |
-| `dispute_window_closed` | 409 | Ventana de dispute de 7 días ha pasado |
 | `node_not_registered` | 403 | Node no está en el registro on-chain |
 
 ---
@@ -554,8 +557,6 @@ Prefijo de URL: `/v1/`. La nueva versión de API no se introducirá antes de la 
 | `payment_intent.failed` | El settlement on-chain falló |
 | `payment_intent.expired` | TTL alcanzado sin pago |
 | `payment_intent.cancelled` | Cancelado por el comercio antes del settlement |
-| `dispute.opened` | El comercio abrió una dispute |
-| `dispute.resolved` | Resultado de la dispute alcanzado |
 
 ---
 

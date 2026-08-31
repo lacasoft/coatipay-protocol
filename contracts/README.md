@@ -1,6 +1,6 @@
 # @lacasoft/coatipay-contracts
 
-CoatiPay smart contracts -- NodeRegistry, StakeManager, DisputeResolver, and SettlementHub
+CoatiPay smart contracts -- NodeRegistry, StakeManager and SettlementHub
 (four deployed contracts, plus a shared `Pausable` base). All four are deployed on Base Sepolia.
 
 Built with [Foundry](https://book.getfoundry.sh/).

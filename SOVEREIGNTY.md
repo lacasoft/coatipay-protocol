@@ -53,7 +53,7 @@ CoatiPay es una capa de enrutamiento de pagos en USDC sobre Base L2. No custodia
 
 Tiene tres piezas:
 
-1. **Contratos on-chain** que llevan el registro de nodeits, stake y disputas.
+1. **Contratos on-chain** que llevan el registro de nodeits, el stake y la liquidación de los pagos.
 2. **Nodeits comunitarios** que cualquiera puede correr en un VPS de ~$20/mes y ganan USDC por enrutar pagos.
 3. **SDKs y API** que dan a los desarrolladores una experiencia tipo Stripe: payment intents, webhooks, retries, idempotencia.
 
@@ -65,7 +65,7 @@ Es análogo a lo que pasó con Linux frente al software propietario, o con WordP
 
 Porque la red es más robusta, más barata y más confiable cuando la operan muchas manos.
 
-Un desarrollador en Monterrey corriendo un nodeit en un VPS de $20/mes está contribuyendo a una red que ninguna entidad sola controla. Gana USDC como compensación por trabajo real: mantener la infraestructura arriba, confirmar transacciones, responder rápido. Su stake es piel en el juego. Su reputación se calcula públicamente on-chain.
+Un desarrollador en Monterrey corriendo un nodeit en un VPS de $20/mes está contribuyendo a una red que ninguna entidad sola controla. Gana USDC como compensación por trabajo real: mantener la infraestructura arriba, confirmar transacciones, responder rápido. Su stake es capital comprometido de verdad. Su reputación se calcula públicamente on-chain.
 
 Esto tiene consecuencias prácticas:
 

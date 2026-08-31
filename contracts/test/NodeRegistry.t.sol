@@ -4,7 +4,6 @@ pragma solidity ^0.8.25;
 import {Test, console} from "forge-std/Test.sol";
 import {NodeRegistry} from "../src/NodeRegistry.sol";
 import {StakeManager} from "../src/StakeManager.sol";
-import {DisputeResolver} from "../src/DisputeResolver.sol";
 import {Pausable} from "../src/Pausable.sol";
 import {MockUSDC} from "./mocks/MockUSDC.sol";
 
@@ -15,9 +14,6 @@ contract NodeRegistryTest is Test {
 
     address guardian = makeAddr("guardian");
     address treasury = makeAddr("treasury");
-    address arbiter1 = makeAddr("arbiter1");
-    address arbiter2 = makeAddr("arbiter2");
-    address arbiter3 = makeAddr("arbiter3");
     address operator = makeAddr("operator");
     address operator2 = makeAddr("operator2");
 
@@ -27,22 +23,11 @@ contract NodeRegistryTest is Test {
     function setUp() public {
         usdc = new MockUSDC();
 
-        // StakeManager / DisputeResolver have a circular dependency resolved
-        // via initialize(). NodeRegistry no longer needs to be wired into
-        // StakeManager — it just reads stake state via getStakeInfo().
-        stakeManager = new StakeManager(address(usdc), guardian, treasury);
-
-        address[] memory arbiters = new address[](3);
-        arbiters[0] = arbiter1;
-        arbiters[1] = arbiter2;
-        arbiters[2] = arbiter3;
-
-        DisputeResolver resolver = new DisputeResolver(address(stakeManager), treasury, arbiters, guardian);
+        // NodeRegistry solo lee el stake vía getStakeInfo(); no hay nada
+        // que cablear entre ambos contratos.
+        stakeManager = new StakeManager(address(usdc), guardian);
 
         registry = new NodeRegistry(address(stakeManager), guardian, MIN_STAKE);
-
-        vm.prank(guardian);
-        stakeManager.initialize(address(resolver));
 
         // Fund operators
         usdc.mint(operator, 10 * MIN_STAKE);

@@ -86,17 +86,13 @@ contract ReentrancyGuardTest is Test {
     address operator = makeAddr("operator");
     address treasury = makeAddr("treasury");
     address guardian = makeAddr("guardian");
-    address disputeResolver = makeAddr("disputeResolver");
 
     uint256 constant STAKE = 500_000_000;
 
     function setUp() public {
         usdc = new HookUSDC();
-        stakeManager = new StakeManager(address(usdc), guardian, treasury);
+        stakeManager = new StakeManager(address(usdc), guardian);
         nodeRegistry = new NodeRegistry(address(stakeManager), guardian, 40_000_000);
-
-        vm.prank(guardian);
-        stakeManager.initialize(disputeResolver);
 
         usdc.mint(operator, 10_000 * 1e6);
     }
@@ -141,25 +137,6 @@ contract ReentrancyGuardTest is Test {
         vm.prank(operator);
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
         stakeManager.executeWithdrawal();
-    }
-
-    /// @notice slash() transfers to treasury; a malicious treasury contract
-    ///         (or hook-enabled USDC) trying to re-enter slash must be blocked.
-    function test_StakeManager_Slash_ReentryBlocked() public {
-        vm.startPrank(operator);
-        usdc.approve(address(stakeManager), STAKE);
-        stakeManager.deposit(STAKE);
-        vm.stopPrank();
-
-        bytes32 disputeId = keccak256("dispute1");
-        // Arm USDC to re-enter slash during the transfer-to-treasury.
-        usdc.arm(
-            address(stakeManager), abi.encodeCall(StakeManager.slash, (operator, STAKE / 2, keccak256("dispute2")))
-        );
-
-        vm.prank(disputeResolver);
-        vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
-        stakeManager.slash(operator, STAKE / 2, disputeId);
     }
 
     /// @notice After the depositFor → register refactor, NodeRegistry.register

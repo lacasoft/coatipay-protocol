@@ -52,8 +52,8 @@ The window to build community-owned infrastructure before institutional standard
 
 ### Technical Milestones
 
-- [x] Smart contracts: `NodeRegistry.sol`, `StakeManager.sol`, `DisputeResolver.sol`, `SettlementHub.sol` — four deployed contracts
-- [x] Foundry test suite: 197 tests (172 unit + 25 invariant/fuzz), all green, across the contracts
+- [x] Smart contracts: `NodeRegistry.sol`, `StakeManager.sol`, `SettlementHub.sol` — three deployed contracts
+- [x] Foundry test suite: 147 tests (131 unit + 16 invariant/fuzz), all green, across the contracts
 - [x] Deploy script: `Deploy.s.sol` ready for Base Sepolia
 - [x] Nodeit daemon: Fastify HTTP API, routes scaffolded
 - [x] REST API: payment intents, webhooks, x402 routes scaffolded
@@ -62,7 +62,7 @@ The window to build community-owned infrastructure before institutional standard
 - [x] **Deploy contracts to Base Sepolia** — completed 2026-04-18 (see `packages/contracts/deployments/sepolia.json`)
 - [x] PostgreSQL persistence in API (`packages/api/src/lib/db.ts` + `repository.ts`)
 - [x] HMAC signing in nodeit daemon (`packages/node/src/lib/hmac.ts`, 60s window)
-- [x] Gasless ERC-3009 settlement: the payer signs a `ReceiveWithAuthorization` authorization and `SettlementHub.sol` pulls the USDC and splits it atomically on-chain (99% merchant / 0.7% nodeit / 0.3% treasury)
+- [x] Gasless ERC-3009 settlement: the payer signs a `ReceiveWithAuthorization` authorization and `SettlementHub.sol` pulls the USDC and splits it atomically on-chain (98.5% merchant / 1.05% nodeit / 0.45% treasury)
 - [x] x402 on-chain payment verification + replay protection (atomic Redis `SET NX` + tx_hash in DB)
 - [x] Webhook delivery with Redis-backed retry queue
 - _Note:_ "Routing engine reading nodeits from `NodeRegistry.sol` via viem" was moved to Phase 2 — with only one nodeit registered, on-chain discovery yields the same result as the `BOOTSTRAP_NODE_ENDPOINT` fallback. See Phase 2 > Technical Milestones.
@@ -78,7 +78,7 @@ The window to build community-owned infrastructure before institutional standard
 - [ ] Capital raised for external smart-contract audit
   - Estimated cost: $20-50k USD (Spearbit/Cantina/OpenZeppelin tier) or $5-15k (independent auditor)
   - Funding paths to explore: Base ecosystem grants, Optimism RetroPGF, small angel round, self-funding
-- [ ] External audit contracted — `NodeRegistry.sol`, `StakeManager.sol`, `DisputeResolver.sol`, `SettlementHub.sol`, `Pausable.sol` (~1,356 LOC Solidity, 197 Foundry tests)
+- [ ] External audit contracted — `NodeRegistry.sol`, `StakeManager.sol`, `SettlementHub.sol`, `Pausable.sol` (~990 LOC Solidity, 140 Foundry tests)
 - [ ] Audit findings remediated and verified with re-audit
 - [ ] Deploy to **Base mainnet** with `minStake = 100 USDC` (anti-Sybil floor documented in the whitepaper)
 - [ ] Bootstrap nodeit operational on mainnet (same daemon, mainnet contracts)
@@ -106,7 +106,6 @@ The window to build community-owned infrastructure before institutional standard
 - [ ] PHP SDK: `lacasoft/coatipay-sdk` on Packagist
 - [ ] Merchant dashboard: Next.js + shadcn/ui
 - [ ] WooCommerce plugin (critical for Mexican merchant adoption)
-- [ ] Dispute resolution UI for merchants
 
 ### Market Milestones
 
@@ -192,7 +191,7 @@ The institutional positioning described above is not a future threat — it is a
 
 Every month that CoatiPay does not have a working nodeit network and at least one production merchant is a month where the institutional narrative becomes the only one available.
 
-The community has the technical advantage — open source, zero fees, no gatekeepers. The institutions have the capital advantage — regulation, distribution, government relationships.
+The community has the technical advantage — open source, a low fee fixed on-chain, no gatekeepers. The institutions have the capital advantage — regulation, distribution, government relationships.
 
 The only way the community wins is by moving faster than the institutions expect.
 
