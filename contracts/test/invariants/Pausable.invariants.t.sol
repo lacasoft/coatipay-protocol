@@ -21,7 +21,6 @@ contract PausableInvariants is Test {
         usdc = new MockUSDC();
         stakeManager = new StakeManager(address(usdc), GUARDIAN);
 
-
         handler = new PausableHandler(stakeManager, GUARDIAN);
         targetContract(address(handler));
     }

@@ -139,7 +139,6 @@ contract ReentrancyGuardTest is Test {
         stakeManager.executeWithdrawal();
     }
 
-
     /// @notice After the depositFor → register refactor, NodeRegistry.register
     ///         no longer makes any USDC transfers itself — it only reads
     ///         StakeManager.getStakeInfo() (a view). The previous

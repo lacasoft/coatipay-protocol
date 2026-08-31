@@ -117,7 +117,6 @@ contract StakeManagerHandler is Test {
         }
     }
 
-
     // ── Accessors for invariants ──────────────────────────────
 
     function actorsLength() external view returns (uint256) {

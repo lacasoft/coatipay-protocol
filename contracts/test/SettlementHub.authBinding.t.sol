@@ -173,8 +173,7 @@ contract SettlementHubAuthBindingTest is Test, IntentSigning {
     /// Tomar una firma legítima y alterar el comercio invalida el registro:
     /// la dirección forma parte de lo firmado.
     function test_RevertWhen_MerchantTamperedAfterSigning() public {
-        SettlementHub.IntentRegistration memory reg =
-            _regOf(hub, HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
         reg.merchant = attacker; // se altera después de firmar
 
         vm.expectRevert(SettlementHub.InvalidIntentSignature.selector);
@@ -183,8 +182,7 @@ contract SettlementHubAuthBindingTest is Test, IntentSigning {
 
     /// Alterar el importe tampoco cuela.
     function test_RevertWhen_AmountTamperedAfterSigning() public {
-        SettlementHub.IntentRegistration memory reg =
-            _regOf(hub, HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, HONEST_INTENT, merchant, operator, AMOUNT, expiresAt);
         reg.amount = AMOUNT * 2;
 
         vm.expectRevert(SettlementHub.InvalidIntentSignature.selector);

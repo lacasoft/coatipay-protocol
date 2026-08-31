@@ -56,9 +56,8 @@ contract SettlementHubMultisigSignerTest is Test {
     // ── Helpers ───────────────────────────────────────────────
 
     function _digest(bytes32 intentId) internal view returns (bytes32) {
-        bytes32 structHash = keccak256(
-            abi.encode(hub.REGISTER_INTENT_TYPEHASH(), intentId, merchant, operator, AMOUNT, expiresAt)
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(hub.REGISTER_INTENT_TYPEHASH(), intentId, merchant, operator, AMOUNT, expiresAt));
         return keccak256(abi.encodePacked("\x19\x01", hub.DOMAIN_SEPARATOR(), structHash));
     }
 
@@ -162,9 +161,8 @@ contract SettlementHubMultisigSignerTest is Test {
         uint256 clave = 0xE0A;
         SettlementHub hubEoa = new SettlementHub(address(usdc), treasury, guardian, vm.addr(clave));
 
-        bytes32 structHash = keccak256(
-            abi.encode(hubEoa.REGISTER_INTENT_TYPEHASH(), INTENT, merchant, operator, AMOUNT, expiresAt)
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(hubEoa.REGISTER_INTENT_TYPEHASH(), INTENT, merchant, operator, AMOUNT, expiresAt));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", hubEoa.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(clave, digest);
 

@@ -104,7 +104,6 @@ contract StakeManager is Pausable, ReentrancyGuard {
         emit WithdrawalExecuted(msg.sender, amount);
     }
 
-
     // ── Views ─────────────────────────────────────────────────
 
     function getStakeInfo(address operator) external view returns (StakeInfo memory) {

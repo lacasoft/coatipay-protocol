@@ -107,7 +107,8 @@ contract SettlementHubTest is Test, IntentSigning {
     }
 
     function test_RegisterIntent_Revert_PastExpiry() public {
-        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, operator, AMOUNT, uint64(block.timestamp));
+        SettlementHub.IntentRegistration memory reg =
+            _regOf(hub, INTENT_ID, merchant, operator, AMOUNT, uint64(block.timestamp));
         vm.expectRevert(SettlementHub.InvalidExpiry.selector);
         hub.registerIntent(reg);
     }
@@ -183,7 +184,6 @@ contract SettlementHubTest is Test, IntentSigning {
         uint256 registered = hub.registerIntentBatch(_regsOf(hub, ids, merchants, operators, amounts, exps));
         assertEq(registered, 2, "dupe skipped");
     }
-
 
     // ── payIntent ─────────────────────────────────────────────
 
@@ -483,7 +483,8 @@ contract SettlementHubTest is Test, IntentSigning {
         vm.stopPrank();
 
         // New registration is blocked
-        SettlementHub.IntentRegistration memory reg = _regOf(hub, keccak256("new"), merchant, operator, AMOUNT, expiresAt);
+        SettlementHub.IntentRegistration memory reg =
+            _regOf(hub, keccak256("new"), merchant, operator, AMOUNT, expiresAt);
         vm.expectRevert(Pausable.EnforcedPause.selector);
         hub.registerIntent(reg);
 

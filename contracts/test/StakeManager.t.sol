@@ -151,7 +151,6 @@ contract StakeManagerTest is Test {
         assertEq(usdc.balanceOf(operator) - balBefore, amount);
     }
 
-
     // ── Pausable ──────────────────────────────────────────────
 
     function test_Pause_DepositRevertsWhenPaused() public {
@@ -227,6 +226,4 @@ contract StakeManagerTest is Test {
         vm.expectRevert(Pausable.ZeroGuardian.selector);
         new StakeManager(address(usdc), address(0));
     }
-
-
 }

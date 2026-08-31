@@ -54,7 +54,6 @@ contract StakeManagerInvariants is Test {
         );
     }
 
-
     // ── Invariante 3: conservación del USDC ──────────────────
     //
     // Sin slashing (ADR-004) el stake solo tiene dos destinos: sigue en el
@@ -78,11 +77,9 @@ contract StakeManagerInvariants is Test {
         assertEq(deposited, sumOfStakes + withdrawn, "no cuadra la contabilidad del USDC");
     }
 
-
     // ── Invariant 5: USDC reference immutable ────────────────
 
     function invariant_usdcImmutable() public view {
         assertEq(address(stakeManager.usdc()), address(usdc), "USDC reference changed");
     }
-
 }

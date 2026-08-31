@@ -33,7 +33,6 @@ contract Deploy is Script {
         // la transacción pero no puede alterar su contenido.
         address intentSigner = vm.envAddress("INTENT_SIGNER_ADDRESS");
 
-
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
 
         // Sanity checks: roles that should NEVER collapse into the deployer.
@@ -120,6 +119,4 @@ contract Deploy is Script {
         require(settlementHub.MAX_BATCH_SIZE() == 50, "SettlementHub: wrong max batch size");
         console.log("All checks passed.");
     }
-
-
 }

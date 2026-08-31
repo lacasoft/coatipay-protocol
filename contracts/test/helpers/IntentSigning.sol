@@ -32,8 +32,9 @@ abstract contract IntentSigning is Test {
         uint256 amount,
         uint64 expiresAt
     ) internal view returns (bytes memory) {
-        bytes32 structHash =
-            keccak256(abi.encode(h.REGISTER_INTENT_TYPEHASH(), intentId, merchant, operator, amount, expiresAt));
+        bytes32 structHash = keccak256(
+            abi.encode(h.REGISTER_INTENT_TYPEHASH(), intentId, merchant, operator, amount, expiresAt)
+        );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", h.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
         return abi.encodePacked(r, s, v);

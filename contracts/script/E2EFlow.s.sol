@@ -111,16 +111,17 @@ contract E2EFlow is Script {
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", cfg.hub.DOMAIN_SEPARATOR(), structHash));
         (uint8 sv, bytes32 sr, bytes32 ss) = vm.sign(vm.envUint("INTENT_SIGNER_PRIVATE_KEY"), digest);
-        cfg.hub.registerIntent(
-            SettlementHub.IntentRegistration({
-                intentId: cfg.intentId,
-                merchant: cfg.merchant,
-                operator: cfg.operator,
-                amount: cfg.amount,
-                expiresAt: expiresAt,
-                signature: abi.encodePacked(sr, ss, sv)
-            })
-        );
+        cfg.hub
+            .registerIntent(
+                SettlementHub.IntentRegistration({
+                    intentId: cfg.intentId,
+                    merchant: cfg.merchant,
+                    operator: cfg.operator,
+                    amount: cfg.amount,
+                    expiresAt: expiresAt,
+                    signature: abi.encodePacked(sr, ss, sv)
+                })
+            );
         vm.stopBroadcast();
 
         SettlementHub.Intent memory intent = cfg.hub.getIntent(cfg.intentId);

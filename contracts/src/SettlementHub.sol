@@ -95,9 +95,8 @@ contract SettlementHub is Pausable, ReentrancyGuard {
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     /// @notice Estructura que firma `intentSigner` para autorizar un registro.
-    bytes32 public constant REGISTER_INTENT_TYPEHASH = keccak256(
-        "RegisterIntent(bytes32 intentId,address merchant,address operator,uint256 amount,uint64 expiresAt)"
-    );
+    bytes32 public constant REGISTER_INTENT_TYPEHASH =
+        keccak256("RegisterIntent(bytes32 intentId,address merchant,address operator,uint256 amount,uint64 expiresAt)");
 
     enum IntentStatus {
         Registered, // 0 — intent declared, awaiting payment
@@ -214,7 +213,9 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     // slither-disable-next-line naming-convention
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return keccak256(
-            abi.encode(_DOMAIN_TYPEHASH, keccak256("CoatiPay SettlementHub"), keccak256("1"), block.chainid, address(this))
+            abi.encode(
+                _DOMAIN_TYPEHASH, keccak256("CoatiPay SettlementHub"), keccak256("1"), block.chainid, address(this)
+            )
         );
     }
 
@@ -225,9 +226,7 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     ///      estuviera correctamente atada a su intent.
     function _requireSignedRegistration(IntentRegistration calldata reg) internal view {
         bytes32 structHash = keccak256(
-            abi.encode(
-                REGISTER_INTENT_TYPEHASH, reg.intentId, reg.merchant, reg.operator, reg.amount, reg.expiresAt
-            )
+            abi.encode(REGISTER_INTENT_TYPEHASH, reg.intentId, reg.merchant, reg.operator, reg.amount, reg.expiresAt)
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
         // SignatureChecker acepta tanto una cartera normal (ECDSA) como un
@@ -282,9 +281,7 @@ contract SettlementHub is Pausable, ReentrancyGuard {
                 // La firma se exige por elemento: el lote no puede ser un
                 // atajo para registrar sin autorización.
                 _requireSignedRegistration(regs[i]);
-                _registerIntent(
-                    regs[i].intentId, regs[i].merchant, regs[i].operator, regs[i].amount, regs[i].expiresAt
-                );
+                _registerIntent(regs[i].intentId, regs[i].merchant, regs[i].operator, regs[i].amount, regs[i].expiresAt);
                 unchecked {
                     ++registered;
                 }
