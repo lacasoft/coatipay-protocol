@@ -22,7 +22,7 @@ integrators to look up current deployed addresses.
   "contracts": {
     "stakeManager":  "0x...",
     "nodeRegistry":  "0x...",
-    "settlementHub": "0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1"
+    "settlementHub": "0xE0941E1A2b9710fc81547CDfF2e67d2C58eBAF09"
   },
   "usdc":     "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
   "treasury": "0x..."

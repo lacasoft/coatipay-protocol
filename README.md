@@ -16,9 +16,9 @@ separadas.
 
 | Contrato | Dirección |
 |---|---|
-| `SettlementHub` | `0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1` |
-| `NodeRegistry` | `0x67821b659d65a58f374b11e4657653bdf25f9a07` |
-| `StakeManager` | `0x8f12bB8222fAe4dceCFd13cFdD7B2f0790207376` |
+| `SettlementHub` | `0xE0941E1A2b9710fc81547CDfF2e67d2C58eBAF09` |
+| `NodeRegistry` | `0xaaCc18e5585e8Da0C9c1afD0B73255A73E40DC62` |
+| `StakeManager` | `0xB9bB551A56dd549a781a5038F49F48d3aE779E33` |
 
 **Roles, en wallets separadas** — ninguna acumula poder sobre las demás:
 

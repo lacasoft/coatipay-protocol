@@ -1,38 +1,31 @@
 {
   "chain": "base-sepolia",
   "chainId": 84532,
-  "deployedAt": "2026-05-15T03:36:36Z",
-  "deployBlock": 41540675,
+  "deployedAt": "2026-08-31T19:49:43Z",
+  "deployBlock": 46218165,
   "deployer": "0x063250650155518BE28989Ec41c597dC1d1eF05C",
   "contracts": {
-    "stakeManager": "0x8f12bB8222fAe4dceCFd13cFdD7B2f0790207376",
-    "disputeResolver": "0x1d057bF2bDE68eC4006ea15Da0c2cF35584d9dfC",
-    "nodeRegistry": "0x67821b659d65a58f374b11e4657653bdf25f9a07",
-    "settlementHub": "0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1"
+    "stakeManager": "0xB9bB551A56dd549a781a5038F49F48d3aE779E33",
+    "nodeRegistry": "0xaaCc18e5585e8Da0C9c1afD0B73255A73E40DC62",
+    "settlementHub": "0xE0941E1A2b9710fc81547CDfF2e67d2C58eBAF09"
   },
   "parameters": {
     "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
     "treasury": "0x05CDED242AFC9D7e60eC3049bD8bDccbbA078261",
     "guardian": "0xbB514Eca8f39d0A3B8092B323282304709d17Ddf",
-    "arbiters": [
-      "0xa6b6FB0B17BeAA2419a9F7f87049BBF47AF7f838",
-      "0xD32Ec6dda5dB526a588Be9C07B0770DD0EfB9a7D",
-      "0x6e11b024FF5839290b541c49cd073067Bc45c470"
-    ],
     "minStakeUsdc": "40000000",
     "minStakeUsdcHuman": "40 USDC",
-    "slashPercentage": 20,
-    "protocolFeeBps": 100,
-    "operatorShareBps": 70,
-    "treasuryShareBps": 30,
-    "maxBatchSize": 50
+    "protocolFeeBps": 150,
+    "operatorShareBps": 105,
+    "treasuryShareBps": 45,
+    "maxBatchSize": 50,
+    "intentSigner": "0xDCF862685E121ba506D51fc8119dc54a0824AD1B"
   },
   "verification": {
     "basescan": {
-      "stakeManager": "https://sepolia.basescan.org/address/0x8f12bB8222fAe4dceCFd13cFdD7B2f0790207376#code",
-      "disputeResolver": "https://sepolia.basescan.org/address/0x1d057bF2bDE68eC4006ea15Da0c2cF35584d9dfC#code",
-      "nodeRegistry": "https://sepolia.basescan.org/address/0x67821b659d65a58f374b11e4657653bdf25f9a07#code",
-      "settlementHub": "https://sepolia.basescan.org/address/0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1#code"
+      "stakeManager": "https://sepolia.basescan.org/address/0xB9bB551A56dd549a781a5038F49F48d3aE779E33#code",
+      "nodeRegistry": "https://sepolia.basescan.org/address/0xaaCc18e5585e8Da0C9c1afD0B73255A73E40DC62#code",
+      "settlementHub": "https://sepolia.basescan.org/address/0xE0941E1A2b9710fc81547CDfF2e67d2C58eBAF09#code"
     },
     "sourceCodeVerified": true
   },
@@ -41,14 +34,20 @@
     "ADR-002: fee structure recalibrated 50 bps → 100 bps. SettlementHub carries PROTOCOL_FEE_BPS=100, OPERATOR_SHARE_BPS=70, TREASURY_SHARE_BPS=30.",
     "ADR-003: SettlementHub deployed for the FIRST time. Adds trustless on-chain payment splitting (99% merchant / 0.7% operator / 0.3% treasury) with three pay paths: payIntent (approve+pay), payIntentWithPermit (EIP-2612), payIntentWithAuthorization (ERC-3009 gasless) + payIntentBatchWithAuthorization (MAX_BATCH_SIZE=50, x402 micropayments).",
     "Deploy.s.sol updated: now deploys 4 contracts. SettlementHub receives the real guardian directly in its constructor (no transferGuardian dance — it has no init step requiring temporary deployer authority).",
-    "ERC-1271 smart-wallet support (PR #148 + #149): SettlementHub REDEPLOYED STANDALONE (forge create, NOT Deploy.s.sol — the other 3 contracts + the nodeit stake are untouched) to switch ERC-3009 settlement from receiveWithAuthorization(...,v,r,s) to the (...,bytes signature) overload, which USDC's SignatureChecker validates for BOTH EOA ECDSA and ERC-1271 contract wallets (Coinbase Smart Wallet). Old SettlementHub: 0x083182ea2b3ef0946f69a29c33d3597cec6043b3 (replaced; intents registered there are stranded — drained via expiry). New: 0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1. Same constructor (usdc/treasury/guardian), same fee constants. ERC-6492 (counterfactual smart wallets) is Phase 2."
+    "ERC-1271 smart-wallet support (PR #148 + #149): SettlementHub REDEPLOYED STANDALONE (forge create, NOT Deploy.s.sol — the other 3 contracts + the nodeit stake are untouched) to switch ERC-3009 settlement from receiveWithAuthorization(...,v,r,s) to the (...,bytes signature) overload, which USDC's SignatureChecker validates for BOTH EOA ECDSA and ERC-1271 contract wallets (Coinbase Smart Wallet). Old SettlementHub: 0x083182ea2b3ef0946f69a29c33d3597cec6043b3 (replaced; intents registered there are stranded — drained via expiry). New: 0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1. Same constructor (usdc/treasury/guardian), same fee constants. ERC-6492 (counterfactual smart wallets) is Phase 2.",
+    "ADR-004: la autorizacion ERC-3009 queda atada a su intent (nonce == intentId) y el registro exige firma EIP-712 de un intentSigner inmutable, verificada con SignatureChecker (admite cartera normal y multisig ERC-1271). Corrige dos vulnerabilidades criticas de robo total por el nodeit.",
+    "ADR-004: sistema de disputas RETIRADO por completo. DisputeResolver ya no se despliega y StakeManager pierde slash(): el stake es fianza anti-Sybil, no confiscable. Cero eventos on-chain desde el despliegue original y sin cablear off-chain.",
+    "ADR-005: comision del protocolo 100 -> 150 bps. Reparto 70/30 intacto: 105 bps al nodeit, 45 bps al treasury. El comercio recibe el 98.5%.",
+    "intentSigner apunta a un Safe (ERC-1271) en vez de a una clave suelta: la direccion es inmutable, pero los firmantes se rotan por dentro sin redesplegar el hub.",
+    "Corte limpio: los TRES contratos se redesplegaron con Deploy.s.sol (no standalone). El ABI de SettlementHub cambia —registerIntent pasa a recibir un struct firmado— asi que el daemon viejo no habla con el contrato nuevo ni al reves. Contratos anteriores, ya reemplazados: SettlementHub 0xe2D6EaF23c285E827f37dC5Ec05fFfD860dBE0e1, NodeRegistry 0x67821b659d65a58f374b11e4657653bdf25f9a07, StakeManager 0x8f12bB8222fAe4dceCFd13cFdD7B2f0790207376, DisputeResolver 0x1d057bF2bDE68eC4006ea15Da0c2cF35584d9dfC (retirado, no se redespliega). Los intents registrados en el hub anterior quedan varados y se drenan por expiracion, y el stake del nodeit sigue en el StakeManager anterior: hay que registrar y estacar de nuevo."
   ],
   "roleSeparation": {
-    "note": "Deployer, treasury, guardian, and node operator are FOUR DISTINCT wallets. Deployer paid gas only and has no post-deploy authority. Deploy.s.sol reverts if any two of them collide. Treasury is stored on StakeManager (immutable, used at slash time), DisputeResolver (immutable, symmetry) and SettlementHub (immutable, receives the 0.3% protocol share). Guardian on all four contracts.",
+    "note": "Deployer, treasury, guardian e intentSigner son CUATRO direcciones distintas. Deploy.s.sol revierte si dos coinciden. El deployer solo pago gas y no conserva autoridad. El intentSigner es un Safe: su direccion es inmutable en el hub, pero sus propietarios se rotan por dentro.",
     "deployer": "0x063250650155518BE28989Ec41c597dC1d1eF05C",
     "treasury": "0x05CDED242AFC9D7e60eC3049bD8bDccbbA078261",
     "guardian": "0xbB514Eca8f39d0A3B8092B323282304709d17Ddf",
-    "nodeOperator (first bootstrap)": "0xf73e2E5a4493d8a4C28e6f88c14a396C82395da4"
+    "nodeOperator (first bootstrap)": "0xf73e2E5a4493d8a4C28e6f88c14a396C82395da4",
+    "intentSigner": "0xDCF862685E121ba506D51fc8119dc54a0824AD1B"
   },
   "previousDeploys": [
     {
