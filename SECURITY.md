@@ -14,11 +14,9 @@ que ningún reporte.
 - Acusamos recibo en **48 horas**.
 - **Reconocimiento público** cuando el fix esté desplegado, y sitio en el [hall of
   fame](#hall-of-fame) de este documento.
-- **Recompensa en USDC** por hallazgos críticos, discrecional y acordada caso
-  por caso, **cuando el treasury tenga flujo sostenido**. Somos early-stage y
-  hoy no lo tiene: preferimos decírtelo antes de que inviertas tu tiempo, no
-  después. Un programa formal con tabla de pagos llegará junto con la auditoría
-  externa.
+- **No ofrecemos recompensa económica.** No tenemos programa de bug bounty y no
+  lo prometemos para más adelante. Lo decimos por delante para que decidas si te
+  compensa mirar, en vez de que lo descubras después de invertir tu tiempo.
 - Si prefieres permanecer anónimo, lo respetamos.
 
 ## Si el exploit está activo ahora mismo
