@@ -2,7 +2,7 @@
 pragma solidity ^0.8.25;
 
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
-import {ECDSA} from "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
+import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptography/SignatureChecker.sol";
 import {IERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
 import {IERC3009} from "./interfaces/IERC3009.sol";
@@ -71,12 +71,19 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     address public immutable treasury;
 
     /// @notice Única dirección cuya firma autoriza a registrar un intent.
-    ///         INMUTABLE a propósito: rotarla exigiría redesplegar. La razón es
-    ///         que el guardian no debe poder cambiarla — si pudiera, tendría
+    ///
+    ///         INMUTABLE a propósito: si el guardian pudiera cambiarla tendría
     ///         capacidad de atar pagos en vuelo a un comercio de su elección,
     ///         que es exactamente la potestad de mover fondos que este diseño
-    ///         le niega. Ante un compromiso de la clave, la respuesta es pausar
-    ///         y redesplegar.
+    ///         le niega.
+    ///
+    ///         Puede ser una cartera normal o un **contrato ERC-1271**, y en
+    ///         producción debe ser un multisig. La verificación usa
+    ///         `SignatureChecker`, que acepta ambas. Con un multisig la
+    ///         dirección sigue siendo inmutable —el guardian no la toca— pero
+    ///         sus firmantes se rotan por dentro, así que una llave
+    ///         comprometida ya no obliga a redesplegar el hub, y hace falta
+    ///         más de una para autorizar.
     address public immutable intentSigner;
 
     bytes32 private constant _DOMAIN_TYPEHASH =
@@ -214,8 +221,16 @@ contract SettlementHub is Pausable, ReentrancyGuard {
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
-        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, reg.signature);
-        if (err != ECDSA.RecoverError.NoError || recovered != intentSigner) revert InvalidIntentSignature();
+        // SignatureChecker acepta tanto una cartera normal (ECDSA) como un
+        // contrato que implemente ERC-1271 — un multisig, por ejemplo. Importa
+        // porque `intentSigner` es inmutable: con una sola clave, perderla o
+        // que se filtre obliga a redesplegar. Apuntando a un multisig, la
+        // dirección sigue siendo inmutable pero **sus firmantes se pueden
+        // rotar por dentro**, y hace falta más de una llave para autorizar.
+        // Es el mismo mecanismo que usa USDC para las smart wallets.
+        if (!SignatureChecker.isValidSignatureNow(intentSigner, digest, reg.signature)) {
+            revert InvalidIntentSignature();
+        }
     }
 
     // ── Intent registration ──────────────────────────────────
