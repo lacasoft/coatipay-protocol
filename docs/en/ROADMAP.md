@@ -53,7 +53,7 @@ The window to build community-owned infrastructure before institutional standard
 ### Technical Milestones
 
 - [x] Smart contracts: `NodeRegistry.sol`, `StakeManager.sol`, `SettlementHub.sol` — three deployed contracts
-- [x] Foundry test suite: 140 tests (124 unit + 16 invariant/fuzz), all green, across the contracts
+- [x] Foundry test suite: 147 tests (131 unit + 16 invariant/fuzz), all green, across the contracts
 - [x] Deploy script: `Deploy.s.sol` ready for Base Sepolia
 - [x] Nodeit daemon: Fastify HTTP API, routes scaffolded
 - [x] REST API: payment intents, webhooks, x402 routes scaffolded

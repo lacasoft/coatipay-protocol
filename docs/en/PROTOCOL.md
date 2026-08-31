@@ -265,6 +265,7 @@ uint16  public constant OPERATOR_SHARE_BPS = 70;   // 0.7% to node operator
 uint256 public constant MAX_BATCH_SIZE     = 50;   // batch cap (x402)
 
 // The only address whose signature authorizes an intent registration. Immutable.
+// A plain wallet or an ERC-1271 contract — in production, a multisig.
 address public immutable intentSigner;
 
 // The nodeit registers the intent on-chain (lazy, on first claim), but the
@@ -293,7 +294,14 @@ event IntentRegistered(...);
 event IntentSettled(...);   // off-chain source of truth for settlement
 ```
 
-**Signed registration (EIP-712):** the nodeit still sends the registration transaction and pays its gas, but it **cannot alter what it registers**. `registerIntent` takes an `IntentRegistration` and reverts with `InvalidIntentSignature` unless `intentSigner`'s signature covers exactly `(intentId, merchant, operator, amount, expiresAt)`. The batch path requires the signature **per element**: it is not a shortcut for registering without authorization. `intentSigner` is **immutable** — not even the guardian can rotate it, because whoever controls it decides which merchant a payment is bound to, and that is precisely the power to move funds this design denies the guardian; if the key is compromised, the answer is to pause and redeploy. This is an explicit centralization: the platform is authoritative over the intent→merchant binding (see ADR-004).
+**Signed registration (EIP-712):** the nodeit still sends the registration transaction and pays its gas, but it **cannot alter what it registers**. `registerIntent` takes an `IntentRegistration` and reverts with `InvalidIntentSignature` unless `intentSigner`'s signature covers exactly `(intentId, merchant, operator, amount, expiresAt)`. The batch path requires the signature **per element**: it is not a shortcut for registering without authorization. Verification uses `SignatureChecker`, so the signature may come from a plain wallet (ECDSA) or from an **ERC-1271 contract** — a multisig. This is an explicit centralization: the platform is authoritative over the intent→merchant binding (see ADR-004).
+
+**`intentSigner` is immutable, and in production it must be a multisig.** The address cannot be changed, and that part is not negotiable: if the guardian could rotate it, it would gain the ability to bind in-flight payments to a merchant of its choosing, which is precisely the power to move funds this design denies it. What *does* depend on how the hub is deployed is the **cost** of that immutability:
+
+- **With a plain wallet (EOA):** one key is enough to authorize, and losing it or leaking it forces you to **pause and redeploy the whole hub**. The contract accepts this configuration for compatibility only.
+- **With a multisig (ERC-1271):** the address stays immutable — the guardian still cannot touch it — but **the signers rotate inside the multisig**, without touching the contract. And authorizing takes the threshold, not a single key. The worst case moves from "redeploy the hub" to "remove a signer from the Safe".
+
+That is why the production recommendation is to deploy `intentSigner` as a multisig. Its address is passed to the constructor and cannot be changed afterwards, so choosing the threshold and the custody of the signer keys is part of the deployment, not a later adjustment. The pause remains the emergency lever for the case where the whole threshold is compromised. `contracts/test/SettlementHub.multisigSigner.t.sol` covers this configuration with a 2-of-3 multisig: six tests, including removing a compromised key without redeploying, and one checking that the plain-wallet path still works.
 
 **Fund split (atomic, on-chain):** for an `amount`, the contract transfers `99%` to the merchant, `0.7%` to the node operator, and `0.3%` to the treasury, in the same transaction. The merchant absorbs any rounding remainder (never loses funds below the split). The constants are `public constant` — not configurable, no way to change the fee post-deploy.
 

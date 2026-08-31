@@ -86,7 +86,7 @@ lacasoft/coatipay-protocol        🌐 public   ← you are here
 │   │   ├── NodeRegistry.sol         nodeit registry
 │   │   ├── StakeManager.sol         stake custody
 │   │   └── Pausable.sol
-│   ├── test/                        140 tests (unit, fuzz, invariants)
+│   ├── test/                        147 tests (unit, fuzz, invariants)
 │   └── deployments/sepolia.json     canonical addresses
 └── protocol/                        @lacasoft/coatipay-protocol
     └── src/
@@ -296,7 +296,7 @@ bytes32 public constant REGISTER_INTENT_TYPEHASH = keccak256(
 
 The nodeit still submits the transaction and pays the gas, but it cannot alter
 the content: if it swaps the merchant address — or the amount, or the operator
-that collects — the signature stops recovering to `intentSigner` and the
+that collects — the signature is no longer valid for `intentSigner` and the
 contract reverts with `InvalidIntentSignature`. `registerIntentBatch` requires
 the signature **per element**, so the batch cannot be a shortcut to register
 without authorization. The registration travels as a struct
@@ -307,11 +307,32 @@ The EIP-712 domain separator (`CoatiPay SettlementHub`, version `1`) is
 recomputed on every call instead of cached, so a chain fork automatically
 invalidates the original chain's signatures.
 
-`intentSigner` is **immutable on purpose**: if the guardian could rotate it, it
-would be able to bind in-flight payments to a merchant of its choosing — which
-is exactly the fund-moving power this design denies it. If that key is
-compromised, the response is to pause and redeploy. This is a real
-centralization, and it is declared as such in §17.
+The `intentSigner` **address** is **immutable on purpose**: if the guardian
+could rotate it, it would be able to bind in-flight payments to a merchant of
+its choosing — which is exactly the fund-moving power this design denies it.
+This is a real centralization, and it is declared as such in §17.
+
+What the deployment *does* choose is **what sits behind that address**.
+Verification uses `SignatureChecker`, not `ECDSA.tryRecover`, so the signer may
+be a plain wallet or an **ERC-1271** contract — the same mechanism USDC uses
+here to validate payer smart-wallet signatures. That does not change the
+immutability; it changes its **cost**:
+
+- **Deployed with a plain wallet (EOA):** one key authorizes, and if it is lost
+  or leaked the only response is to **pause and redeploy the whole hub**. The
+  contract accepts this configuration for compatibility only.
+- **Deployed with a multisig (ERC-1271):** the address stays immutable — the
+  guardian still cannot touch it — but **the signers rotate inside the
+  multisig**, without touching the contract or changing the address. And signing
+  takes the threshold, not a single key. The worst case moves from "redeploy the
+  hub" to "remove a signer from the Safe".
+
+**In production `intentSigner` must be a multisig.** The pause remains the
+emergency lever for the case where the whole threshold is compromised.
+`contracts/test/SettlementHub.multisigSigner.t.sol` covers this configuration
+with a 2-of-3 multisig (six tests): a removed compromised key stops counting
+towards the threshold, the healthy ones keep authorizing against the **same**
+hub, `intentSigner` never changes, and the plain-wallet path still works.
 
 **Binding the authorization to its intent (ADR-004).** The payer's ERC-3009
 signature covers `from`, `to`, `value`, `validAfter`, `validBefore`, and
@@ -347,6 +368,11 @@ with the deployer as temporary guardian, which only existed because of
 `NodeRegistry` is not wired inside `StakeManager`: nodeits deposit directly with
 `stakeManager.deposit()` and the registry reads the stake via
 `stakeManager.getStakeInfo(operator)`.
+
+If `intentSigner` is going to be a multisig — the production recommendation
+(§4.3) — the multisig must exist **first**: its address is passed to the
+constructor and cannot be changed afterwards, so the threshold and the custody
+of the signer keys are decided at deployment, not later.
 
 `script/Deploy.s.sol` aborts if the deployer equals the treasury or the
 guardian, or if guardian and treasury are the same wallet — these are roles that
@@ -888,7 +914,7 @@ Treasury allocation is decided by the Foundation; the balance is publicly visibl
 **`intentSigner` key compromise**
 
 *Threat:* Whoever controls that key can sign registrations binding a new intent to any merchant they choose.
-*Mitigation:* This is a **bounded and declared** risk, not an eliminated one (ADR-004): the platform is authoritative over the intent→merchant binding, and that is now explicit in the contract instead of an implicit fact of routing. What the key **cannot** do is move funds on its own: it cannot redirect already-registered intents (`registerIntent` rejects duplicate identifiers) nor touch settled ones. `intentSigner` is immutable, so on compromise the response is to **pause and redeploy** — the pause already exists as the emergency lever.
+*Mitigation:* This is a **bounded and declared** risk, not an eliminated one (ADR-004): the platform is authoritative over the intent→merchant binding, and that is now explicit in the contract instead of an implicit fact of routing. What the key **cannot** do is move funds on its own: it cannot redirect already-registered intents (`registerIntent` rejects duplicate identifiers) nor touch settled ones. The blast radius depends on how the signer was deployed: with a **plain wallet** compromising **one** key is enough, and the only response is to **pause and redeploy** the hub; with an **ERC-1271 multisig** — the recommended production configuration (§4.3) — the attacker has to compromise the **threshold** of keys, and the response is to remove the affected signer inside the multisig, without touching the contract and without the immutable address changing. The address cannot be rotated in either case; the pause remains the emergency lever in both.
 
 **Sybil attack (many fake nodes)**
 
@@ -1231,7 +1257,7 @@ These are the properties that CoatiPay guarantees to all participants. They must
 2. The fee split (70/30 node/treasury, 100 bps total — see ADR-002) is encoded in the protocol (`SettlementHub.sol` constants) and cannot be changed without a new deployment
 3. The minimum stake (`minStake`) is a state variable adjustable by the guardian via `NodeRegistry.setMinStake()`, but the contract **rejects decreases** — increase-only. This lets the network raise the anti-Sybil floor as it matures (initial value: 100 USDC on mainnet, 40 USDC on Sepolia testnet) without invalidating already-registered operators.
 4. All node registrations are permissionless — no whitelist committee can block a node from joining
-5. There is one centralization, and it is declared: `intentSigner`, the key whose signature authorizes registering intents (ADR-004). It binds each intent to its merchant and **cannot move funds** — it can neither redirect already-registered intents nor touch settled ones. It is immutable on purpose, so not even the guardian can rotate it: on compromise, the response is to pause and redeploy
+5. There is one centralization, and it is declared: `intentSigner`, the address whose signature authorizes registering intents (ADR-004). It binds each intent to its merchant and **cannot move funds** — it can neither redirect already-registered intents nor touch settled ones. The address is immutable on purpose, so not even the guardian can rotate it; but it can be an ERC-1271 multisig, and **in production it must be**: the signers then rotate inside it and a compromise is answered by removing one key, not by redeploying (with a plain wallet, the only response is still to pause and redeploy)
 
 ---
 

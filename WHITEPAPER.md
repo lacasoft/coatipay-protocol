@@ -386,7 +386,7 @@ Los reportes se publicarán en el repositorio público.
 
 ### 7.1 Qué funciona hoy (v0.1)
 
-- Los tres contratos inteligentes desplegados (NodeRegistry, StakeManager, SettlementHub) + la base `Pausable` heredada, con 140 tests (unit + fuzz) en Foundry pasando
+- Los tres contratos inteligentes desplegados (NodeRegistry, StakeManager, SettlementHub) + la base `Pausable` heredada, con 147 tests (unit + fuzz) en Foundry pasando
 - **Deploy en Base Sepolia live** con contratos verificados en Basescan (ver `packages/contracts/deployments/sepolia.json`)
 - SDK JS/Python/PHP publicables, con tests
 - REST API completa (payment intents, webhooks, x402) con ~184 tests
@@ -417,7 +417,7 @@ Seamos honestos:
 
 > **Reframe estratégico (2026-05-09) — Luis Campos (LACA-SOFT):** El plan original incluía "Primer comercio" en esta fase. Eso fue un error de framing — ningún comercio real va a procesar ventas sobre testnet. La secuencia correcta es **capital → auditoría externa → mainnet → primer comercio**. Phase 1 cierra cuando el protocolo está en mainnet con auditoría pasada, no antes. "Primer comercio" se mueve a Phase 2.
 
-- ✅ Contratos + tests en Foundry (tres contratos desplegados + base `Pausable`; 140 tests, fuzz testing)
+- ✅ Contratos + tests en Foundry (tres contratos desplegados + base `Pausable`; 147 tests, fuzz testing)
 - ✅ SDK JavaScript, Python, PHP
 - ✅ Verificación on-chain de pagos via viem
 - ✅ Settlement gasless ERC-3009 vía `SettlementHub.sol` (split atómico on-chain)

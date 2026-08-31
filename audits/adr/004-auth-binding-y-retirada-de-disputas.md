@@ -90,8 +90,23 @@ transacción y pagando el gas, pero no puede alterar el contenido.
 **`intentSigner` es inmutable a propósito.** Si el guardian pudiera rotarlo,
 tendría capacidad de atar pagos en vuelo a un comercio de su elección — es
 decir, de mover fondos, que es exactamente la potestad que este diseño le niega.
-Ante un compromiso de la clave la respuesta es **pausar y redesplegar**, y la
-pausa ya existe como palanca de emergencia.
+
+**Y acepta un multisig.** La verificación usa `SignatureChecker`, no
+`ECDSA.tryRecover`, así que el firmante puede ser una cartera normal o un
+contrato ERC-1271 — el mismo mecanismo que USDC ya emplea aquí para las smart
+wallets. **En producción debe ser un multisig**, y el contrato admite ambos solo
+por compatibilidad.
+
+Eso resuelve la tensión que dejaba la inmutabilidad. Con una sola clave, el
+peor escenario era caro: perderla o que se filtrara obligaba a **redesplegar el
+hub entero**, y una sola llave bastaba para autorizar. Con un multisig la
+dirección sigue siendo inmutable —el guardian no la toca— pero **los firmantes
+se rotan por dentro**, así que el peor escenario pasa a ser *cambiar un firmante
+en el Safe*. Y comprometer una llave deja de ser suficiente: hay que alcanzar
+el umbral.
+
+La pausa sigue existiendo como palanca de emergencia para el caso en que se
+comprometa el umbral entero.
 
 Es una centralización real y hay que declararla: la plataforma pasa a ser
 autoritativa sobre el binding intent→comercio. Ya lo era de facto —decide el
@@ -162,6 +177,9 @@ auditoría en lugar de mejorarla.
   deployer no llega a tener autoridad en ningún momento.
 - **Menos superficie de auditoría**: −364 líneas de DisputeResolver, más
   `slash()` y el cableado asociado.
+- **Hay que preparar el multisig antes de desplegar**: su dirección se pasa al
+  constructor y no se puede cambiar después. Decidir umbral y custodia de las
+  llaves forma parte del despliegue, no es un ajuste posterior.
 - **La invariante de conservación se refuerza**: sin fuga al treasury, todo lo
   depositado o sigue en el contrato o volvió a su dueño. Pasa de desigualdad a
   igualdad exacta.
@@ -180,5 +198,8 @@ auditoría en lugar de mejorarla.
   demostrar que era insuficiente— y después se comprobó que revierte.
 - El arnés de pruebas ya no acepta un nonce suelto: se deriva del intent, para
   que ningún test futuro pruebe un camino que no existe.
+- Seis tests con un multisig 2-de-3, incluido el que da sentido al cambio: se
+  retira una llave comprometida, las sanas siguen autorizando contra el mismo
+  hub, la retirada deja de contar y `intentSigner` no cambia en ningún momento.
 - Suite completa en verde. El recuento cuadra exactamente con lo eliminado:
-  197 − 44 − 6 − 10 − 1 − 1 − 3 − 1 + 9 = **140**, y los 140 pasan.
+  197 − 44 − 6 − 10 − 1 − 1 − 3 − 1 + 9 + 1 + 6 = **147**, y los 147 pasan.

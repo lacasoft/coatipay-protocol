@@ -262,6 +262,7 @@ uint16  public constant OPERATOR_SHARE_BPS = 70;   // 0.7% al node operator
 uint256 public constant MAX_BATCH_SIZE     = 50;   // cap del batch (x402)
 
 // Única dirección cuya firma autoriza a registrar un intent. Inmutable.
+// Cartera normal o contrato ERC-1271 — en producción, un multisig.
 address public immutable intentSigner;
 
 // El nodeit registra el intent on-chain (lazy, en el primer claim), pero el
@@ -290,7 +291,14 @@ event IntentRegistered(...);
 event IntentSettled(...);   // fuente de verdad off-chain del settlement
 ```
 
-**Registro firmado (EIP-712):** el nodeit sigue enviando la transacción de registro y pagando su gas, pero **no puede alterar lo que registra**. `registerIntent` recibe un `IntentRegistration` y revierte con `InvalidIntentSignature` si la firma de `intentSigner` no cubre exactamente `(intentId, merchant, operator, amount, expiresAt)`. El lote la exige **por elemento**: no es un atajo para registrar sin autorización. `intentSigner` es **inmutable** — ni el guardian puede rotarlo, porque quien lo controla decide a qué comercio queda atado un pago, y esa es justamente la potestad de mover fondos que el diseño le niega; ante un compromiso de la clave la respuesta es pausar y redesplegar. Es una centralización explícita: la plataforma es autoritativa sobre el binding intent→comercio (ver ADR-004).
+**Registro firmado (EIP-712):** el nodeit sigue enviando la transacción de registro y pagando su gas, pero **no puede alterar lo que registra**. `registerIntent` recibe un `IntentRegistration` y revierte con `InvalidIntentSignature` si la firma de `intentSigner` no cubre exactamente `(intentId, merchant, operator, amount, expiresAt)`. El lote la exige **por elemento**: no es un atajo para registrar sin autorización. La verificación usa `SignatureChecker`, así que la firma puede venir de una cartera normal (ECDSA) o de un **contrato ERC-1271** — un multisig. Es una centralización explícita: la plataforma es autoritativa sobre el binding intent→comercio (ver ADR-004).
+
+**`intentSigner` es inmutable, y en producción debe ser un multisig.** La dirección no se puede cambiar, y eso no se negocia: si el guardian pudiera rotarla, tendría capacidad de atar pagos en vuelo a un comercio de su elección, que es justamente la potestad de mover fondos que el diseño le niega. Lo que sí depende de con qué se despliegue es el **coste** de esa inmutabilidad:
+
+- **Con una cartera normal (EOA):** una sola llave basta para autorizar, y perderla o que se filtre obliga a **pausar y redesplegar el hub entero**. El contrato admite esta configuración solo por compatibilidad.
+- **Con un multisig (ERC-1271):** la dirección sigue siendo inmutable —el guardian no la toca— pero **los firmantes se rotan por dentro del multisig**, sin tocar el contrato. Y para autorizar hace falta alcanzar el umbral, no una sola llave. El peor escenario pasa de «redesplegar el hub» a «retirar un firmante del Safe».
+
+Por eso la recomendación para producción es desplegar `intentSigner` como multisig. Su dirección se pasa al constructor y no se puede cambiar después, así que decidir umbral y custodia de las llaves forma parte del despliegue, no es un ajuste posterior. La pausa sigue siendo la palanca de emergencia para el caso en que se comprometa el umbral entero. `contracts/test/SettlementHub.multisigSigner.t.sol` cubre esta configuración con un multisig 2-de-3: seis tests, incluido el de retirar una llave comprometida sin redesplegar, y el que comprueba que la ruta de cartera normal sigue funcionando.
 
 **Split de fondos (atómico, on-chain):** sobre un monto `amount`, el contrato transfiere `99%` al comercio, `0.7%` al node operator y `0.3%` al treasury, en la misma transacción. El comercio absorbe cualquier residuo de redondeo (nunca pierde fondos por debajo del split). Las constantes son `public constant` — no configurables, no hay forma de cambiar el fee post-deploy.
 

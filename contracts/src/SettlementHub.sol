@@ -203,6 +203,10 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     /// @notice Separador de dominio EIP-712. Se calcula en cada llamada en
     ///         lugar de cachearse: así una bifurcación de la cadena invalida
     ///         automáticamente las firmas de la cadena original.
+    // Mayúsculas a propósito: es el nombre que fija EIP-712 y el que usa el
+    // propio USDC. Renombrarlo para contentar al linter rompería la convención
+    // que cualquier integrador espera encontrar.
+    // slither-disable-next-line naming-convention
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return keccak256(
             abi.encode(_DOMAIN_TYPEHASH, keccak256("CoatiPay SettlementHub"), keccak256("1"), block.chainid, address(this))

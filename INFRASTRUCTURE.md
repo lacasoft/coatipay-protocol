@@ -85,7 +85,7 @@ lacasoft/coatipay-protocol        🌐 público   ← estás aquí
 │   │   ├── NodeRegistry.sol         registro de nodeits
 │   │   ├── StakeManager.sol         custodia del stake
 │   │   └── Pausable.sol
-│   ├── test/                        140 tests (unitarios, fuzz e invariantes)
+│   ├── test/                        147 tests (unitarios, fuzz e invariantes)
 │   └── deployments/sepolia.json     direcciones canónicas
 └── protocol/                        @lacasoft/coatipay-protocol
     └── src/
@@ -296,8 +296,8 @@ bytes32 public constant REGISTER_INTENT_TYPEHASH = keccak256(
 
 El nodeit sigue enviando la transacción y pagando el gas, pero no puede alterar
 su contenido: si sustituye la dirección del comercio —o el importe, o el
-operador que cobra— la firma deja de recuperar a `intentSigner` y el contrato
-revierte con `InvalidIntentSignature`. `registerIntentBatch` exige la firma
+operador que cobra— la firma deja de ser válida para `intentSigner` y el
+contrato revierte con `InvalidIntentSignature`. `registerIntentBatch` exige la firma
 **elemento por elemento**, para que el lote no sea un atajo para registrar sin
 autorización. El registro va en un struct (`IntentRegistration`) en vez de en
 arreglos paralelos, lo que elimina de raíz la clase de fallo de longitudes
@@ -307,11 +307,33 @@ El separador de dominio EIP-712 (`CoatiPay SettlementHub`, versión `1`) se
 recalcula en cada llamada en vez de cachearse, de modo que una bifurcación de la
 cadena invalida automáticamente las firmas de la cadena original.
 
-`intentSigner` es **inmutable a propósito**: si el guardian pudiera rotarlo,
-tendría capacidad de atar pagos en vuelo a un comercio de su elección — que es
-exactamente la potestad de mover fondos que este diseño le niega. Ante un
-compromiso de esa clave, la respuesta es pausar y redesplegar. Es una
-centralización real y está declarada como tal en §17.
+La **dirección** `intentSigner` es **inmutable a propósito**: si el guardian
+pudiera rotarla, tendría capacidad de atar pagos en vuelo a un comercio de su
+elección — que es exactamente la potestad de mover fondos que este diseño le
+niega. Es una centralización real y está declarada como tal en §17.
+
+Lo que sí se elige en el despliegue es **qué hay detrás de esa dirección**. La
+verificación usa `SignatureChecker`, no `ECDSA.tryRecover`, así que el firmante
+puede ser una cartera normal o un contrato **ERC-1271** — el mismo mecanismo con
+el que USDC valida aquí las firmas de las smart wallets de los pagadores. Eso no
+cambia la inmutabilidad; cambia su **coste**:
+
+- **Desplegado con una cartera normal (EOA):** una sola llave autoriza, y si se
+  pierde o se filtra la única respuesta es **pausar y redesplegar el hub
+  entero**. El contrato admite esta configuración solo por compatibilidad.
+- **Desplegado con un multisig (ERC-1271):** la dirección sigue siendo
+  inmutable —el guardian no la toca— pero **los firmantes se rotan por dentro
+  del multisig**, sin tocar el contrato ni cambiar la dirección. Y para firmar
+  hay que alcanzar el umbral, no basta una llave. El peor escenario pasa de
+  «redesplegar el hub» a «retirar un firmante del Safe».
+
+**En producción `intentSigner` debe ser un multisig.** La pausa sigue existiendo
+como palanca de emergencia para el caso en que se comprometa el umbral entero.
+`contracts/test/SettlementHub.multisigSigner.t.sol` cubre esta configuración con
+un multisig 2-de-3 (seis tests): retirar una llave comprometida deja de contar
+para el umbral, las sanas siguen autorizando contra el **mismo** hub,
+`intentSigner` no cambia en ningún momento, y la ruta de cartera normal sigue
+funcionando.
 
 **Atadura de la autorización a su intent (ADR-004).** La firma ERC-3009 del
 pagador cubre `from`, `to`, `value`, `validAfter`, `validBefore` y `nonce` — no
@@ -347,6 +369,11 @@ intermedia con el deployer como guardian temporal, que solo existía por el
 `NodeRegistry` no se cablea dentro de `StakeManager`: los nodeits depositan
 directamente con `stakeManager.deposit()` y el registro consulta el stake vía
 `stakeManager.getStakeInfo(operator)`.
+
+Si `intentSigner` va a ser un multisig —lo recomendado en producción (§4.3)—,
+el multisig tiene que existir **antes**: su dirección se pasa al constructor y no
+se puede cambiar después, así que el umbral y la custodia de las llaves se
+deciden en el despliegue, no después.
 
 `script/Deploy.s.sol` aborta si el deployer coincide con el treasury o con el
 guardian, o si guardian y treasury son la misma cartera — son roles que nunca
@@ -888,7 +915,7 @@ La asignación del treasury la decide la Fundación; el balance es públicamente
 **Compromiso de la clave `intentSigner`**
 
 *Amenaza:* Quien controle esa clave puede firmar registros que aten un intent nuevo al comercio que quiera.
-*Mitigación:* Es un riesgo **acotado y declarado**, no eliminado (ADR-004): la plataforma es autoritativa sobre el binding intent→comercio, y ahora está explícito en el contrato en vez de ser un hecho implícito del enrutamiento. Lo que la clave **no** puede hacer es mover fondos por sí sola: no redirige intents ya registrados (`registerIntent` rechaza identificadores repetidos) ni toca los ya liquidados. `intentSigner` es inmutable, así que ante un compromiso la respuesta es **pausar y redesplegar** — la pausa ya existe como palanca de emergencia.
+*Mitigación:* Es un riesgo **acotado y declarado**, no eliminado (ADR-004): la plataforma es autoritativa sobre el binding intent→comercio, y ahora está explícito en el contrato en vez de ser un hecho implícito del enrutamiento. Lo que la clave **no** puede hacer es mover fondos por sí sola: no redirige intents ya registrados (`registerIntent` rechaza identificadores repetidos) ni toca los ya liquidados. El radio de impacto depende de cómo se haya desplegado el firmante: con una **cartera normal** basta comprometer **una** llave, y la única respuesta es **pausar y redesplegar** el hub; con un **multisig ERC-1271** —la configuración recomendada para producción (§4.3)— hay que comprometer el **umbral** de llaves, y la respuesta es retirar el firmante afectado dentro del multisig, sin tocar el contrato y sin que la dirección inmutable cambie. La dirección no se puede rotar en ninguno de los dos casos; la pausa sigue siendo la palanca de emergencia en ambos.
 
 **Ataque Sybil (muchos nodes falsos)**
 
@@ -1240,7 +1267,7 @@ Estas son las propiedades que CoatiPay garantiza a todos los participantes. Debe
 2. El fee split (70/30 nodeit/treasury, 100 bps total — ver ADR-002) está codificado en el protocolo (`SettlementHub.sol` constants) y no puede cambiarse sin un nuevo despliegue
 3. El stake mínimo (`minStake`) es una variable de estado ajustable por el guardian vía `NodeRegistry.setMinStake()`, pero el contrato **rechaza reducciones** — solo incrementos. Esto permite que la red aumente la barrera anti-Sybil conforme madura (valor inicial: 100 USDC en mainnet, 40 USDC en Sepolia testnet) sin invalidar a operadores ya registrados.
 4. Todos los registros de nodes son sin permisos — ningún comité de whitelist puede bloquear a un node de unirse
-5. Existe una centralización, y está declarada: `intentSigner`, la clave cuya firma autoriza registrar intents (ADR-004). Ata cada intent a su comercio y **no puede mover fondos** — ni redirigir intents ya registrados ni tocar los liquidados. Es inmutable a propósito, así que ni el guardian puede rotarla: ante un compromiso, la respuesta es pausar y redesplegar
+5. Existe una centralización, y está declarada: `intentSigner`, la dirección cuya firma autoriza registrar intents (ADR-004). Ata cada intent a su comercio y **no puede mover fondos** — ni redirigir intents ya registrados ni tocar los liquidados. La dirección es inmutable a propósito, así que ni el guardian puede rotarla; pero puede ser un multisig ERC-1271, y **en producción debe serlo**: así los firmantes se rotan por dentro y un compromiso se responde retirando una llave, no redesplegando (con una cartera normal, la única respuesta sigue siendo pausar y redesplegar)
 
 ---
 
