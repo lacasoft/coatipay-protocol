@@ -48,7 +48,7 @@ USDC is boring. It is 1:1 with USD, redeemable by Circle, and accepted everywher
 
 Node operators do the work — they run infrastructure, maintain uptime, stake capital. They receive the majority of fees. The 30% treasury allocation is the minimum needed to make the treasury **self-sustaining** at reachable volumes (~$10M/mo vs ~$30M/mo under the prior 80/20 split) — nodes collectively benefit from the ongoing work the treasury funds: audits, SDK development, documentation, community growth.
 
-If the treasury share were higher, operators would have less incentive to run nodes. If it were lower, the project would need recurring external funding rounds to cover basic public goods. 70/30 is the equilibrium that keeps both sides viable (see ADR-002 for the full economic analysis).
+If the treasury share were higher, operators would have less incentive to run nodes. If it were lower, the project would need recurring external funding rounds to cover basic public goods. 70/30 is the equilibrium that keeps both sides viable (see ADR-002 for the full economic analysis; ADR-005 raises the total fee to 150 bps and leaves the split untouched).
 
 ### Why x402 is first-class, not a plugin
 
@@ -180,20 +180,20 @@ Node (observes, confirms, earns fee from)  ─────────┘
 Fee split per transaction:
 ```
 Amount = 1,000,000 (1.00 USDC)
-Total fee = 10,000 (1.0% = 100 bps)
-  └─ Node share (70%) = 7,000
-  └─ Treasury (30%) = 3,000
-Merchant receives = 990,000
+Total fee = 15,000 (1.5% = 150 bps)
+  └─ Node share (70%) = 10,500
+  └─ Treasury (30%) = 4,500
+Merchant receives = 985,000
 ```
 
 The payer never pays gas: payments settle **gasless via ERC-3009** — the payer signs a
 `ReceiveWithAuthorization` authorization off-chain and the nodeit submits it on-chain and
 pays the gas (see §6.2). What gas abstraction does *not* fix is the nodeit's economics for
-sub-cent amounts: the nodeit pays ~$0.003 of gas per settlement against its 0.7% share, so an
+sub-cent amounts: the nodeit pays ~$0.003 of gas per settlement against its 1.05% share, so an
 individual on-chain settlement only breaks even around ~$0.30. The API enforces a
 `MIN_PAYMENT_AMOUNT` floor (default $0.30) and rejects intents below it. True sub-cent
 micropayments (x402) require off-chain **netting** — accumulating many calls and settling the
-sum once — which is on the roadmap (see ADR-002).
+sum once — which is on the roadmap (see ADR-002; ADR-005 for the move to 150 bps).
 
 ---
 
@@ -259,9 +259,9 @@ function getStakeInfo(address operator) external view returns (StakeInfo memory)
 **Responsibility:** The contract that **moves the funds**. Pulls USDC from the payer and atomically splits it on-chain (merchant + node operator + treasury) in a single transaction. Introduced in ADR-003 as the heart of gasless ERC-3009 settlement.
 
 ```solidity
-uint16  public constant PROTOCOL_FEE_BPS   = 100;  // 1.0% total fee
-uint16  public constant TREASURY_SHARE_BPS = 30;   // 0.3% to treasury
-uint16  public constant OPERATOR_SHARE_BPS = 70;   // 0.7% to node operator
+uint16  public constant PROTOCOL_FEE_BPS   = 150;  // 1.5% total fee
+uint16  public constant TREASURY_SHARE_BPS = 45;   // 0.45% to treasury
+uint16  public constant OPERATOR_SHARE_BPS = 105;  // 1.05% to node operator
 uint256 public constant MAX_BATCH_SIZE     = 50;   // batch cap (x402)
 
 // The only address whose signature authorizes an intent registration. Immutable.
@@ -303,7 +303,7 @@ event IntentSettled(...);   // off-chain source of truth for settlement
 
 That is why the production recommendation is to deploy `intentSigner` as a multisig. Its address is passed to the constructor and cannot be changed afterwards, so choosing the threshold and the custody of the signer keys is part of the deployment, not a later adjustment. The pause remains the emergency lever for the case where the whole threshold is compromised. `contracts/test/SettlementHub.multisigSigner.t.sol` covers this configuration with a 2-of-3 multisig: six tests, including removing a compromised key without redeploying, and one checking that the plain-wallet path still works.
 
-**Fund split (atomic, on-chain):** for an `amount`, the contract transfers `99%` to the merchant, `0.7%` to the node operator, and `0.3%` to the treasury, in the same transaction. The merchant absorbs any rounding remainder (never loses funds below the split). The constants are `public constant` — not configurable, no way to change the fee post-deploy.
+**Fund split (atomic, on-chain):** for an `amount`, the contract transfers `98.5%` to the merchant, `1.05%` to the node operator, and `0.45%` to the treasury, in the same transaction. The merchant absorbs any rounding remainder (never loses funds below the split). The constants are `public constant` — not configurable, no way to change the fee post-deploy.
 
 **Gasless path (ERC-3009):** the payer signs a `ReceiveWithAuthorization` authorization off-chain (EIP-712); the node operator submits it via `payIntentWithAuthorization` and pays the gas. USDC enforces `msg.sender == to`, which eliminates on-chain front-running of the authorization. **The authorization is bound to its intent:** the contract requires `nonce == intentId` and reverts with `AuthorizationNotBoundToIntent` otherwise, so a signature is only usable for the intent whose id it carries as the nonce, and whoever submits the transaction cannot redirect the money. The nonce is burned on first use (USDC's native replay protection). The authorization travels as a raw `bytes` signature and settles via USDC's `receiveWithAuthorization(…, bytes)` overload (`SignatureChecker`), so it **works for both EOA wallets (ECDSA) and ERC-1271 smart wallets** (e.g. Coinbase Smart Wallet). *Counterfactual* accounts (undeployed smart wallet → ERC-6492 signature) are deferred to a later phase.
 
@@ -352,7 +352,7 @@ interface PaymentIntent {
 
 ### 5.3 Transition Rules
 
-**created → settled** — the on-chain `IntentSettled` event emitted by `SettlementHub.sol` is confirmed. The payer signed an ERC-3009 authorization, the nodeit daemon submitted it to the contract, and the contract pulled the payer's USDC and split it atomically (99% to the merchant, 0.7% to the nodeit, 0.3% to the treasury). The `payment_intent.settled` webhook fires.
+**created → settled** — the on-chain `IntentSettled` event emitted by `SettlementHub.sol` is confirmed. The payer signed an ERC-3009 authorization, the nodeit daemon submitted it to the contract, and the contract pulled the payer's USDC and split it atomically (98.5% to the merchant, 1.05% to the nodeit, 0.45% to the treasury). The `payment_intent.settled` webhook fires.
 
 **created → expired** — the `expires_at` timestamp is reached without the intent reaching `settled`.
 
@@ -384,7 +384,7 @@ Settlement does not happen through an exposed HTTP endpoint on the nodeit. The f
 1. The payer signs an EIP-712 `ReceiveWithAuthorization` authorization off-chain.
 2. The SDK sends that authorization to the API, which queues it.
 3. The nodeit daemon polls the API queue, claims the authorization, and submits `payIntentWithAuthorization` to the `SettlementHub.sol` contract. The nodeit pays the gas for this transaction.
-4. `SettlementHub.sol` pulls the payer's USDC and splits it atomically on-chain (99% merchant, 0.7% nodeit, 0.3% treasury) and emits the `IntentSettled` event.
+4. `SettlementHub.sol` pulls the payer's USDC and splits it atomically on-chain (98.5% merchant, 1.05% nodeit, 0.45% treasury) and emits the `IntentSettled` event.
 5. An event watcher confirms the settlement by reading the on-chain `IntentSettled` event, and the API marks the intent as `settled` and fires the webhook.
 
 The nodeit never holds funds at any point: the USDC moves from payer to merchant within a single atomic contract transaction.
@@ -492,7 +492,7 @@ export const GET = relay.x402.handler({
 |---|---|
 | Node steals funds | Funds never pass through nodes — payer-to-merchant always |
 | Node routes to wrong address | The merchant address is set by the API layer and travels **signed** (EIP-712 by `intentSigner`): the nodeit sends the registration but cannot change its content |
-| Node collects fee without settling | It cannot: the nodeit's 0.7% comes out of the **same atomic split** that pays the merchant, in the same transaction. No settlement, no fee to collect |
+| Node collects fee without settling | It cannot: the nodeit's 1.05% comes out of the **same atomic split** that pays the merchant, in the same transaction. No settlement, no fee to collect |
 | Sybil attack | `minStake` of 100 USDC (mainnet) makes Sybil costly |
 | Node exit scam | 7-day withdrawal timelock: the exit is visible on-chain a week before the stake moves |
 | Double-spend | Settlement is an atomic `SettlementHub.sol` transaction; the intent moves to `settled` only when the on-chain `IntentSettled` event is confirmed |

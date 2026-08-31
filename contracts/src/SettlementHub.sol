@@ -11,12 +11,14 @@ import {Pausable} from "./Pausable.sol";
 /// @title  SettlementHub
 /// @notice Trustless on-chain settlement for OpenRelay payments. Receives
 ///         payer's USDC, atomically splits into:
-///           99.0% → merchant
-///            0.7% → operator (the routing node that registered the intent)
-///            0.3% → treasury
+///          98.50% → merchant
+///           1.05% → operator (the routing node that registered the intent)
+///           0.45% → treasury
 /// @dev    See ADR-001 + ADR-002 for the full design rationale.
-///         ADR-002 recalibrated the fee structure from 50 bps (80/20) to
-///         100 bps (70/30) for sustainable operator + treasury economics.
+///         ADR-002 recalibrated the fee from 50 bps (80/20) to 100 bps
+///         (70/30) for sustainable operator + treasury economics.
+///         ADR-005 later raised the total to 150 bps, keeping the 70/30
+///         split untouched.
 ///
 ///         Trust model: replaces the prior "operator-side daemon forwards
 ///         funds" pattern with on-chain enforcement. Operator can no longer
@@ -31,19 +33,22 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     // ── Constants ────────────────────────────────────────────
 
     /// @notice Total protocol fee in basis points (1 bp = 0.01%).
-    ///         100 bps = 1.0% of the payment amount.
-    /// @dev    ADR-002: recalibrated from 50 bps; required for sustainable
-    ///         operator economics at LATAM-scale payment volumes.
-    uint16 public constant PROTOCOL_FEE_BPS = 100;
+    ///         150 bps = 1.5% of the payment amount.
+    /// @dev    ADR-005: raised from 100 bps, riding the redeploy that ADR-004
+    ///         already forced. The constant lives in non-upgradeable bytecode,
+    ///         so changing it at any other time would cost a redeploy and a
+    ///         re-audit of its own.
+    uint16 public constant PROTOCOL_FEE_BPS = 150;
 
     /// @notice Treasury's share of the payment in basis points.
-    ///         30 bps = 0.3% of the amount (= 30% of the protocol fee).
-    /// @dev    ADR-002: increased from 10 bps to accelerate treasury
-    ///         self-funding (target ~$10M/mes vol vs prior $30M/mes).
-    uint16 public constant TREASURY_SHARE_BPS = 30;
+    ///         45 bps = 0.45% of the amount (= 30% of the protocol fee).
+    /// @dev    ADR-005: the 70/30 split is unchanged, so the treasury share
+    ///         scales with the fee and the relative incentive to run an
+    ///         operator node stays the same.
+    uint16 public constant TREASURY_SHARE_BPS = 45;
 
     /// @notice Implicit operator share = PROTOCOL_FEE_BPS - TREASURY_SHARE_BPS.
-    ///         70 bps = 0.7% of the amount (= 70% of the protocol fee).
+    ///         105 bps = 1.05% of the amount (= 70% of the protocol fee).
     uint16 public constant OPERATOR_SHARE_BPS = PROTOCOL_FEE_BPS - TREASURY_SHARE_BPS;
 
     /// @notice Denominator for basis-point math.
@@ -255,7 +260,7 @@ contract SettlementHub is Pausable, ReentrancyGuard {
 
     /// @notice Register multiple intents in one transaction. Designed for
     ///         x402 micropayments where per-intent gas would otherwise
-    ///         dominate the operator's 0.7% fee. Skip-on-conflict semantics:
+    ///         dominate the operator's 1.05% fee. Skip-on-conflict semantics:
     ///         intents already registered are silently skipped (the rest
     ///         proceed). Returns count of successful registrations.
     /// @dev    All input arrays must have the same length, else reverts.
@@ -388,7 +393,7 @@ contract SettlementHub is Pausable, ReentrancyGuard {
 
     /// @notice Batched gasless settlement (ERC-3009). Designed for x402
     ///         micropayments where per-intent gas would otherwise dominate
-    ///         the operator's 0.7% fee. Skip-on-failure semantics: any
+    ///         the operator's 1.05% fee. Skip-on-failure semantics: any
     ///         single bad authorization is silently skipped; the rest proceed.
     ///         Returns count of successful settlements.
     /// @dev    Implementation uses `try this.payOneAuthorizedSelfCall(...)`

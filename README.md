@@ -88,16 +88,16 @@ comité decide quién entra** — lo decide el protocolo.
 
 ## Comisión y reparto
 
-**1.0% (100 bps)** sobre cada pago liquidado. El comercio recibe el **99%**; el
+**1.5% (150 bps)** sobre cada pago liquidado. El comercio recibe el **98.5%**; el
 resto se reparte on-chain en la misma transacción:
 
 | Destino | Del pago total |
 |---|---|
-| **Comercio** | **99%** |
-| Nodeit que liquida | 0.70% |
-| Treasury del protocolo | 0.30% |
+| **Comercio** | **98.5%** |
+| Nodeit que liquida | 1.05% |
+| Treasury del protocolo | 0.45% |
 
-Son $10 por cada $1,000, frente a ~$29 de una pasarela de tarjeta. Sin alta, sin
+Son $15 por cada $1,000, frente a ~$29 de una pasarela de tarjeta. Sin alta, sin
 cuota mensual, sin mínimos.
 
 Estos números viven **solo** en `SettlementHub.sol`; lo que ves en TypeScript se
@@ -187,7 +187,7 @@ Para que el API te dé trabajo necesitas estar **registrado y activo** y mantene
 el **stake por encima del mínimo**. Si retiras el stake dejas de recibir
 liquidaciones aunque sigas registrado: el stake es la credencial que te habilita.
 
-Quien opere un nodeit gana el **70% de la comisión** (0.7% de cada pago que
+Quien opere un nodeit gana el **70% de la comisión** (1.05% de cada pago que
 enruta), en USDC y on-chain.
 
 ---

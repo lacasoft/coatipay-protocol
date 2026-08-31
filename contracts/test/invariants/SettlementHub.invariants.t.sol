@@ -82,10 +82,10 @@ contract SettlementHubInvariants is Test, IntentSigning {
         uint256 amount = 1_000_000_000_000; // 1M USDC base units
         (uint256 m, uint256 o, uint256 t) = hub.previewSplit(amount);
 
-        // 99.0%, 0.7%, 0.3% of 1M = 990_000_000_000 / 7_000_000_000 / 3_000_000_000
-        assertEq(m, 990_000_000_000, "merchant 99.0%");
-        assertEq(o, 7_000_000_000, "operator 0.7%");
-        assertEq(t, 3_000_000_000, "treasury 0.3%");
+        // 99.0%, 0.7%, 0.3% of 1M = 985_000_000_000 / 10_500_000_000 / 4_500_000_000
+        assertEq(m, 985_000_000_000, "merchant 98.5%");
+        assertEq(o, 10_500_000_000, "operator 1.05%");
+        assertEq(t, 4_500_000_000, "treasury 0.45%");
         assertEq(m + o + t, amount, "split sums exactly");
     }
 
@@ -129,8 +129,8 @@ contract SettlementHubInvariants is Test, IntentSigning {
         // pudiera cambiar, quien lo cambiara podría atar pagos en vuelo a un
         // comercio de su elección.
         assertEq(hub.intentSigner(), _intentSigner(), "intentSigner mutated");
-        assertEq(hub.PROTOCOL_FEE_BPS(), 100, "fee changed");
-        assertEq(hub.TREASURY_SHARE_BPS(), 30, "treasury share changed");
-        assertEq(hub.OPERATOR_SHARE_BPS(), 70, "operator share changed");
+        assertEq(hub.PROTOCOL_FEE_BPS(), 150, "fee changed");
+        assertEq(hub.TREASURY_SHARE_BPS(), 45, "treasury share changed");
+        assertEq(hub.OPERATOR_SHARE_BPS(), 105, "operator share changed");
     }
 }

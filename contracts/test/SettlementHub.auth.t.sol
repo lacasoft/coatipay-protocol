@@ -135,9 +135,9 @@ contract SettlementHubAuthTest is Test, IntentSigning {
 
         hub.payIntentWithAuthorization(auth);
 
-        assertEq(usdc.balanceOf(merchant), 990_000_000, "merchant 99%");
-        assertEq(usdc.balanceOf(operator), 7_000_000, "operator 0.7%");
-        assertEq(usdc.balanceOf(treasury), 3_000_000, "treasury 0.3%");
+        assertEq(usdc.balanceOf(merchant), 985_000_000, "merchant 98.5%");
+        assertEq(usdc.balanceOf(operator), 10_500_000, "operator 1.05%");
+        assertEq(usdc.balanceOf(treasury), 4_500_000, "treasury 0.45%");
         assertEq(usdc.balanceOf(address(wallet)), 9 * AMOUNT, "wallet paid 1000");
     }
 
@@ -184,9 +184,9 @@ contract SettlementHubAuthTest is Test, IntentSigning {
         hub.payIntentWithAuthorization(auth);
 
         // 1000 USDC = 990 merchant + 7 operator + 3 treasury (100 bps total, 70/30)
-        assertEq(usdc.balanceOf(merchant), 990_000_000, "merchant 99%");
-        assertEq(usdc.balanceOf(operator), 7_000_000, "operator 0.7%");
-        assertEq(usdc.balanceOf(treasury), 3_000_000, "treasury 0.3%");
+        assertEq(usdc.balanceOf(merchant), 985_000_000, "merchant 98.5%");
+        assertEq(usdc.balanceOf(operator), 10_500_000, "operator 1.05%");
+        assertEq(usdc.balanceOf(treasury), 4_500_000, "treasury 0.45%");
         assertEq(usdc.balanceOf(address(hub)), 0, "hub holds nothing");
 
         SettlementHub.Intent memory i = hub.getIntent(INTENT_ID);
@@ -227,7 +227,7 @@ contract SettlementHubAuthTest is Test, IntentSigning {
         SettlementHub.Authorization memory auth = _defaultAuth();
 
         vm.expectEmit(true, true, false, true);
-        emit SettlementHub.IntentSettled(INTENT_ID, payer, 990_000_000, 7_000_000, 3_000_000);
+        emit SettlementHub.IntentSettled(INTENT_ID, payer, 985_000_000, 10_500_000, 4_500_000);
         hub.payIntentWithAuthorization(auth);
     }
 
@@ -449,7 +449,7 @@ contract SettlementHubAuthTest is Test, IntentSigning {
         }
 
         // Merchant balance reflects 5 successful payments (5 × 990 USDC)
-        assertEq(usdc.balanceOf(merchant), 5 * 990_000_000);
+        assertEq(usdc.balanceOf(merchant), 5 * 985_000_000);
     }
 
     function test_PayBatch_SkipOnFailure() public {
@@ -495,7 +495,7 @@ contract SettlementHubAuthTest is Test, IntentSigning {
         assertEq(uint8(hub.getIntent(id2).status), uint8(SettlementHub.IntentStatus.Settled));
         assertEq(uint8(hub.getIntent(id4).status), uint8(SettlementHub.IntentStatus.Settled));
 
-        assertEq(usdc.balanceOf(merchant), 3 * 990_000_000);
+        assertEq(usdc.balanceOf(merchant), 3 * 985_000_000);
     }
 
     function test_PayBatch_AllFail() public {

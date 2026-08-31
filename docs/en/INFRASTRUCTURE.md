@@ -117,7 +117,7 @@ lacasoft/openrelay-platform       🔒 private
 
 Base is an L2 on Ethereum backed by Coinbase. It was selected as the primary settlement layer for three reasons:
 
-**Fees.** Transactions on Base cost ~$0.001–0.005 in gas — orders of magnitude below Ethereum mainnet (where a small payment would cost $2–5 in gas), which is what makes small payments practical at all. Honest floor: the node keeps 0.7% of the fee and pays that gas, so per-call settlement breaks even around **~$0.30/call**, and the node never settles below that. True sub-cent micropayments need off-chain netting (accumulate many calls, settle the sum once) — on the roadmap.
+**Fees.** Transactions on Base cost ~$0.001–0.005 in gas — orders of magnitude below Ethereum mainnet (where a small payment would cost $2–5 in gas), which is what makes small payments practical at all. Honest floor: the node keeps 1.05% of the fee and pays that gas, so per-call settlement breaks even around **~$0.30/call**, and the node never settles below that. True sub-cent micropayments need off-chain netting (accumulate many calls, settle the sum once) — on the roadmap.
 
 **x402 ecosystem.** The x402 protocol (HTTP 402 Payment Required for machine-to-machine payments) was designed with Base as the primary chain. The reference implementation from x402.org targets Base Sepolia for testing.
 
@@ -275,12 +275,12 @@ touch the money.
 
 **Responsibility:** Trustless on-chain settlement and atomic fee split. This is the contract that **moves the funds** — it pulls the payer's USDC and splits it on-chain (merchant + node operator + treasury) in a single transaction, replacing the prior "operator-side daemon forwards funds" trust model.
 
-**Fee split (atomic, on-chain):** for any `amount`, the contract sends 99% to the merchant, 0.7% to the node operator, and 0.3% to the treasury, in the same transaction. The fee constants are `public constant` — not configurable, no way to change the fee post-deploy:
+**Fee split (atomic, on-chain):** for any `amount`, the contract sends 98.5% to the merchant, 1.05% to the node operator, and 0.45% to the treasury, in the same transaction. The fee constants are `public constant` — not configurable, no way to change the fee post-deploy:
 
 ```solidity
-uint16  public constant PROTOCOL_FEE_BPS   = 100;  // 1.0% total fee
-uint16  public constant OPERATOR_SHARE_BPS = 70;   // 0.7% to node operator
-uint16  public constant TREASURY_SHARE_BPS = 30;   // 0.3% to treasury
+uint16  public constant PROTOCOL_FEE_BPS   = 150;  // 1.5% total fee
+uint16  public constant OPERATOR_SHARE_BPS = 105;  // 1.05% to node operator
+uint16  public constant TREASURY_SHARE_BPS = 45;   // 0.45% to treasury
 uint256 public constant MAX_BATCH_SIZE     = 50;   // batch cap (x402)
 ```
 
@@ -612,7 +612,7 @@ Settlement is not triggered by an exposed HTTP endpoint on the nodeit, but by an
 
 1. The payer signs an EIP-712 `ReceiveWithAuthorization` authorization off-chain with their own wallet. The SDK sends it to the API, which queues it.
 2. The nodeit daemon polls that queue, claims a pending authorization, and submits `payIntentWithAuthorization` to `SettlementHub.sol`. **The nodeit pays the gas for this transaction.**
-3. `SettlementHub.sol` pulls the payer's USDC and splits it atomically on-chain (99% merchant, 0.7% nodeit, 0.3% treasury) and emits `IntentSettled`.
+3. `SettlementHub.sol` pulls the payer's USDC and splits it atomically on-chain (98.5% merchant, 1.05% nodeit, 0.45% treasury) and emits `IntentSettled`.
 4. An event watcher confirms the settlement by reading the `IntentSettled` event and the API marks the intent as `settled`.
 
 There is no HMAC authentication between the API and the nodeit: the nodeit consumes the API queue and settlement is validated on-chain, not by a request signature. The merchant never defines a payment address — the USDC moves from payer to merchant within the contract's atomic transaction.
@@ -790,9 +790,9 @@ relay.x402.middleware({ price: 50000 }) // $0.05  → routed
 [SettlementHub.sol — atomic on-chain transaction]
   Pulls the payer's USDC via ERC-3009
   Splits the amount on-chain:
-    99.0% → merchant wallet
-     0.7% → nodeit (OPERATOR_SHARE_BPS = 70)
-     0.3% → treasury (TREASURY_SHARE_BPS = 30)
+    98.5% → merchant wallet
+    1.05% → nodeit (OPERATOR_SHARE_BPS = 105)
+    0.45% → treasury (TREASURY_SHARE_BPS = 45)
   Emits the IntentSettled event
         │
         ▼
@@ -848,21 +848,21 @@ On-chain:          SettlementHub.sol pulls the payer's USDC and splits it
                    atomically in a single transaction (no intermediary
                    payment_address — the USDC goes straight from payer to merchant)
 
-Merchant receives: $99.000000 USDC
-Node receives:     $00.700000 USDC (70% of 1.0% fee)
-Treasury receives: $00.300000 USDC (30% of 1.0% fee)
+Merchant receives: $98.500000 USDC
+Node receives:     $01.050000 USDC (70% of 1.5% fee)
+Treasury receives: $00.450000 USDC (30% of 1.5% fee)
 ```
 
 For a $0.001 USDC x402 micropayment (illustrative — this is BELOW the economic
-floor: the node's $0.0000070 share can't cover ~$0.003 of gas, so the node would
+floor: the node's $0.0000105 share can't cover ~$0.003 of gas, so the node would
 not settle this individually; sub-cent needs netting):
 ```
-Total fee:     $0.0000100 (1.0% of $0.001)
-Node receives: $0.0000070
-Treasury:      $0.0000030
+Total fee:     $0.0000150 (1.5% of $0.001)
+Node receives: $0.0000105
+Treasury:      $0.0000045
 ```
 
-The protocol fee itself is purely proportional (1.0%, no flat component), but each on-chain settlement costs the nodeit gas it pays out of its 0.7% share, so an **individual** on-chain settlement only breaks even around **~$0.30/call** — and the API enforces a `MIN_PAYMENT_AMOUNT` floor (default $0.30), rejecting intents below it. True sub-cent micropayments are viable only with off-chain **netting** (accumulate many calls, settle the sum once), which is on the roadmap. Even so, CoatiPay's proportional model beats traditional processors whose flat fee (~$0.30 *per* transaction) makes small payments uneconomical at any volume.
+The protocol fee itself is purely proportional (1.5%, no flat component), but each on-chain settlement costs the nodeit gas it pays out of its 1.05% share, so an **individual** on-chain settlement only breaks even around **~$0.30/call** — and the API enforces a `MIN_PAYMENT_AMOUNT` floor (default $0.30), rejecting intents below it. True sub-cent micropayments are viable only with off-chain **netting** (accumulate many calls, settle the sum once), which is on the roadmap. Even so, CoatiPay's proportional model beats traditional processors whose flat fee (~$0.30 *per* transaction) makes small payments uneconomical at any volume.
 
 ### 11.2 Node profitability model
 
@@ -870,13 +870,13 @@ A node operator can estimate expected earnings:
 
 ```
 monthly_volume    = transactions_per_day × avg_amount × 30
-monthly_gross_fee = monthly_volume × 0.01
+monthly_gross_fee = monthly_volume × 0.015
 node_earnings     = monthly_gross_fee × 0.70
 
 Example: 1,000 tx/day, avg $50
   monthly_volume    = $1,500,000
-  monthly_gross_fee = $15,000
-  node_earnings     = $10,500/month in USDC
+  monthly_gross_fee = $22,500
+  node_earnings     = $15,750/month in USDC
 ```
 
 Costs for a basic node:
@@ -886,7 +886,7 @@ Minimum stake (100 USDC mainnet · 40 USDC testnet): one-time, recoverable
 Base gas for registration: ~$0.005
 ```
 
-The profitability threshold is around $3,000 of monthly volume (≈300 transactions at $10, or 60 at $50) — the point where node earnings cover the VPS cost. Well below what any active merchant would generate.
+The profitability threshold is around $2,000 of monthly volume (≈200 transactions at $10, or 40 at $50) — the point where node earnings cover the VPS cost. Well below what any active merchant would generate.
 
 ### 11.3 Treasury model
 
@@ -909,7 +909,7 @@ Treasury allocation is decided by the Foundation; the balance is publicly visibl
 *Mitigation:* The split is executed by `SettlementHub.sol` in an atomic on-chain transaction — the nodeit does not control the destination of the funds. The merchant address is fixed in the intent and **authenticated**: the contract only registers intents signed by `intentSigner` (§4.3), so the nodeit submitting the transaction cannot swap in its own. And the payer's ERC-3009 authorization is only valid for the intent whose identifier is its nonce, so it cannot be applied to someone else's intent either. The nodeit only submits the transaction and pays the gas; it cannot touch or redirect the USDC.
 
 *Threat:* Accept work and then go offline without settling the intent.
-*Mitigation:* There is nothing to capture: until the intent settles, the USDC stays in the payer's wallet. A nodeit that does not settle **penalizes itself** — it does not earn its 0.7% — and the intent expires at `expires_at`; anyone can close it with `cancelExpired()` and the merchant issues a new one. The 7-day withdrawal timelock additionally makes the nodeit's exit visible on-chain a week in advance (§4.2).
+*Mitigation:* There is nothing to capture: until the intent settles, the USDC stays in the payer's wallet. A nodeit that does not settle **penalizes itself** — it does not earn its 1.05% — and the intent expires at `expires_at`; anyone can close it with `cancelExpired()` and the merchant issues a new one. The 7-day withdrawal timelock additionally makes the nodeit's exit visible on-chain a week in advance (§4.2).
 
 **`intentSigner` key compromise**
 
@@ -957,7 +957,7 @@ These invariants must be preserved across all contract upgrades (deployments) an
 3. `NodeRegistry.getActiveNodes()` never contains an address with `active = false`
 4. `SettlementHub`: no intent is registered without a valid `intentSigner` signature, and an `intentId` cannot be registered twice
 5. `SettlementHub`: an ERC-3009 authorization can only be applied to the intent whose identifier is its nonce, and each intent settles at most once
-6. `SettlementHub`: the split adds up exactly to the settled amount (99% / 0.7% / 0.3%) and the contract holds no USDC between transactions
+6. `SettlementHub`: the split adds up exactly to the settled amount (98.5% / 1.05% / 0.45%) and the contract holds no USDC between transactions
 
 ### 12.4 Audit requirements
 
@@ -1135,7 +1135,7 @@ The reference Base Sepolia deploy is already live (2026-04-18) — the canonical
 # 2. Configure deployment .env
 DEPLOYER_PRIVATE_KEY=0x...
 USDC_ADDRESS=0x036CbD53842c5426634e7929541eC2318f3dCF7e  # Base Sepolia USDC
-TREASURY_ADDRESS=0x...         # receives the 0.3%; wallet distinct from the deployer
+TREASURY_ADDRESS=0x...         # receives the 0.45%; wallet distinct from the deployer
 GUARDIAN_ADDRESS=0x...         # pause and setMinStake; distinct from deployer and treasury
 INTENT_SIGNER_ADDRESS=0x...    # signs intent registrations (ADR-004); immutable after deploy
 MIN_STAKE_USDC_UNITS=40000000  # optional — defaults to 40 USDC
@@ -1185,7 +1185,7 @@ For production deployment, additional considerations:
 
 | | CoatiPay | Stripe |
 |---|---|---|
-| Transaction fee | 1.0% | 2.9% + $0.30 |
+| Transaction fee | 1.5% | 2.9% + $0.30 |
 | Minimum transaction | ~$0.30 (economic floor; sub-cent needs netting — roadmap) | ~$0.50 (fees make smaller uneconomic) |
 | Fiat support | No | Yes (Visa, MC, ACH) |
 | Crypto support | USDC, BTC | Limited |
@@ -1197,7 +1197,7 @@ For production deployment, additional considerations:
 
 **When to use Stripe:** When you need fiat (credit cards, bank transfers) or need someone else to handle compliance. Stripe and CoatiPay are complementary — many merchants should use both.
 
-**When to use CoatiPay:** When you accept crypto, need zero fees, need micropayments, are building AI agent infrastructure, or are in a market where Stripe doesn't reach.
+**When to use CoatiPay:** When you accept crypto, want a low fee verifiable on-chain, need micropayments, are building AI agent infrastructure, or are in a market where Stripe doesn't reach.
 
 ### 16.2 CoatiPay vs. BTCPay Server
 
@@ -1218,7 +1218,7 @@ BTCPay Server is the closest precedent to CoatiPay. CoatiPay is essentially "BTC
 | | CoatiPay | Institutional |
 |---|---|---|
 | Ownership | Community / no one | Shareholders |
-| Fees | 0–1.0% | TBD (typically 0.5–2%) |
+| Fees | 1.5% (contract constant) | TBD (typically 0.5–2%) |
 | Censorable | No (permissionless nodes) | Yes (regulatory compliance) |
 | Auditable | Fully (open source) | Partially |
 | AI agent native | Yes | No |
@@ -1236,7 +1236,7 @@ These are the properties that CoatiPay guarantees to all participants. They must
 ### For merchants
 
 1. Funds received in the merchant wallet are yours — no party can recall or freeze them after settlement
-2. The address that collects the 99% is authenticated: `SettlementHub` only registers an intent if it comes signed by `intentSigner`, so the nodeit submitting the transaction cannot swap in its own
+2. The address that collects the 98.5% is authenticated: `SettlementHub` only registers an intent if it comes signed by `intentSigner`, so the nodeit submitting the transaction cannot swap in its own
 3. Your API key is never transmitted in logs or error messages — only the key prefix is stored for identification
 4. Webhook signatures are computed over the exact payload — any modification invalidates the signature
 
@@ -1254,7 +1254,7 @@ These are the properties that CoatiPay guarantees to all participants. They must
 ### For the protocol
 
 1. There is no admin key that can move funds, upgrade, or rewrite the state of the deployed contracts. The one privileged action is an **emergency pause** (the `Pausable` base) held by a 3-of-5 guardian multisig — it gates registration and new writes but cannot move funds, stop in-flight settlements, or change the rules
-2. The fee split (70/30 node/treasury, 100 bps total — see ADR-002) is encoded in the protocol (`SettlementHub.sol` constants) and cannot be changed without a new deployment
+2. The fee split (70/30 node/treasury, 150 bps total — see ADR-002, revised in ADR-005) is encoded in the protocol (`SettlementHub.sol` constants) and cannot be changed without a new deployment
 3. The minimum stake (`minStake`) is a state variable adjustable by the guardian via `NodeRegistry.setMinStake()`, but the contract **rejects decreases** — increase-only. This lets the network raise the anti-Sybil floor as it matures (initial value: 100 USDC on mainnet, 40 USDC on Sepolia testnet) without invalidating already-registered operators.
 4. All node registrations are permissionless — no whitelist committee can block a node from joining
 5. There is one centralization, and it is declared: `intentSigner`, the address whose signature authorizes registering intents (ADR-004). It binds each intent to its merchant and **cannot move funds** — it can neither redirect already-registered intents nor touch settled ones. The address is immutable on purpose, so not even the guardian can rotate it; but it can be an ERC-1271 multisig, and **in production it must be**: the signers then rotate inside it and a compromise is answered by removing one key, not by redeploying (with a plain wallet, the only response is still to pause and redeploy)

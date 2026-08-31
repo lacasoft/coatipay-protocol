@@ -10,7 +10,7 @@
 
 América Latina está viviendo una transición acelerada hacia los pagos digitales. México, Colombia, Chile, Argentina y Brasil tienen políticas activas para reducir el uso de efectivo. Esto abre una ventana única para construir infraestructura abierta antes de que los estándares se consoliden alrededor de opciones cerradas.
 
-Las plataformas existentes —Stripe, Mercado Pago, Clip, Conekta— funcionan, pero cobran comisiones que hacen inviable a los comercios de margen pequeño y dejan fuera a quienes no tienen acceso bancario. No existe una opción que sea código abierto, con comisiones casi cero, fácil de integrar y con una red comunitaria de nodeits que hable español como ciudadano de primera clase.
+Las plataformas existentes —Stripe, Mercado Pago, Clip, Conekta— funcionan, pero cobran comisiones que hacen inviable a los comercios de margen pequeño y dejan fuera a quienes no tienen acceso bancario. No existe una opción que sea código abierto, con una comisión baja y fijada on-chain, fácil de integrar y con una red comunitaria de nodeits que hable español como ciudadano de primera clase.
 
 Esa es la oportunidad que persigue CoatiPay. La ventana para construir infraestructura de propiedad comunitaria antes de que los estándares de mercado se vuelvan el default no se mide en años, se mide en meses.
 
@@ -56,7 +56,7 @@ Esa es la oportunidad que persigue CoatiPay. La ventana para construir infraestr
 - [x] **Deploy de contratos a Base Sepolia** — completado 2026-04-18 (ver `packages/contracts/deployments/sepolia.json`)
 - [x] Persistencia en PostgreSQL en la API (`packages/api/src/lib/db.ts` + `repository.ts`)
 - [x] Firma HMAC en el daemon del nodeit (`packages/node/src/lib/hmac.ts`, ventana 60s)
-- [x] Settlement gasless ERC-3009: el payer firma una autorización `ReceiveWithAuthorization` y `SettlementHub.sol` jala el USDC y lo splittea atómicamente on-chain (99% comercio / 0.7% nodeit / 0.3% treasury)
+- [x] Settlement gasless ERC-3009: el payer firma una autorización `ReceiveWithAuthorization` y `SettlementHub.sol` jala el USDC y lo splittea atómicamente on-chain (98.5% comercio / 1.05% nodeit / 0.45% treasury)
 - [x] Verificación on-chain de pagos x402 + protección contra replay (atomic `SET NX` en Redis + tx_hash en DB)
 - [x] Entrega de webhooks con cola de reintentos en Redis
 - _Nota:_ "Motor de routing leyendo nodeits desde `NodeRegistry.sol` via viem" se movió a Fase 2 — con un solo nodeit registrado el descubrimiento on-chain da el mismo resultado que el fallback de `BOOTSTRAP_NODE_ENDPOINT`. Ver Fase 2 > Hitos Técnicos.
@@ -183,7 +183,7 @@ Estos criterios son públicos, verificables y no negociables. No hay inflación 
 
 La ventana para construir alternativas comunitarias es real y finita. Cada mes que CoatiPay no tenga una red de nodeits funcionando y al menos un comercio en producción es un mes en el que las opciones cerradas consolidan su ventaja.
 
-La comunidad tiene la ventaja técnica: código abierto, comisiones casi cero, sin gatekeepers. La única manera de convertir esa ventaja técnica en ventaja de adopción es moviéndonos rápido.
+La comunidad tiene la ventaja técnica: código abierto, comisión baja y fijada on-chain, sin gatekeepers. La única manera de convertir esa ventaja técnica en ventaja de adopción es moviéndonos rápido.
 
 ---
 

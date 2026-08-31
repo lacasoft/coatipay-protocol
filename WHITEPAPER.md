@@ -14,8 +14,9 @@ CoatiPay es una red de enrutamiento de pagos de código abierto. Cualquiera pued
 
 Lo que ofrecemos:
 
-- **Red comunitaria:** comisión muy por debajo del 2.9%+ de Stripe, fijada on-chain
-  en el contrato y verificable antes de integrarse
+- **Red comunitaria:** comisión del 1.5%, fijada on-chain en el contrato y
+  verificable antes de integrarse — la mitad o menos de lo que cobra una pasarela
+  tradicional (2.9% + $0.30) en pagos típicos
 - **Soporte x402 nativo:** micropagos gasless para agentes de IA (USDC-native, sin necesidad de ETH); económicamente viables desde ~$0.30/llamada en Base — el sub-centavo requiere netting off-chain (hoja de ruta)
 - **SDK en TS, Python, PHP:** la misma DX que ya conoces (JS en npm y Python en PyPI publicados; PHP pendiente en Packagist)
 
@@ -40,7 +41,7 @@ Pero hoy las opciones son limitadas:
 No existe una opción que sea todo esto a la vez:
 
 - Código abierto
-- Comisiones casi cero
+- Comisiones bajas, fijadas on-chain y verificables
 - Fácil de integrar como Stripe
 - Con una red comunitaria de nodeits
 - Que hable español como ciudadano de primera clase
@@ -79,16 +80,16 @@ El nodeit nunca toca los fondos. Solo confirma que la transacción ocurrió y av
 
 ### 2.2 Cómo se cobra
 
-**Comisión del protocolo: 1.0% (100 bps) sobre cada pago liquidado.**
+**Comisión del protocolo: 1.5% (150 bps) sobre cada pago liquidado.**
 
-El comercio recibe el **99%** de forma directa; el 1% restante se reparte
+El comercio recibe el **98.5%** de forma directa; el 1.5% restante se reparte
 on-chain, en la misma transacción, sin que nadie lo custodie en el camino:
 
-- **0.7%** (70% de la comisión) → el **nodeit** que enrutó el pago
-- **0.3%** (30% de la comisión) → el treasury del protocolo
+- **1.05%** (70% de la comisión) → el **nodeit** que enrutó el pago
+- **0.45%** (30% de la comisión) → el treasury del protocolo
 
-Son $10 por cada $1,000 movidos, frente a ~$29 de una pasarela de tarjeta: un
-65% menos. No hay cuota mensual, ni alta, ni mínimos.
+Son $15 por cada $1,000 movidos, frente a ~$29 de una pasarela de tarjeta: te
+ahorras casi la mitad. No hay cuota mensual, ni alta, ni mínimos.
 
 El reparto está fijado en `SettlementHub.sol` y es verificable on-chain. La
 parte del nodeit es lo que hace que operar uno tenga sentido económico, y la
@@ -102,9 +103,9 @@ Cualquiera puede operar un nodeit. Solo necesitas:
 2. Correr el software en un VPS (~$20/mes)
 3. Mantener buen uptime y velocidad
 
-**Ganas:** 70% del fee de cada transacción que enrutas (el 0.7% del monto).
-Con $1.5M de volumen mensual → ~$10,500/mes en USDC.
-Con $10k/día (500 pagos a $20 promedio) → ~$2,100/mes vs ~$130/mes de costos fijos = **break-even cómodo**.
+**Ganas:** 70% del fee de cada transacción que enrutas (el 1.05% del monto).
+Con $1.5M de volumen mensual → ~$15,750/mes en USDC.
+Con $10k/día (500 pagos a $20 promedio) → ~$3,150/mes vs ~$130/mes de costos fijos = **break-even cómodo**.
 
 No hay token. No hay mining. Solo trabajo real por pago real.
 
@@ -137,7 +138,7 @@ Tres contratos en Base:
 
 - **NodeRegistry:** registro público de nodeits, cualquiera se registra con stake ≥ `minStake` (100 USDC mainnet · 40 USDC testnet; ajustable por guardian, solo incrementos)
 - **StakeManager:** depósitos y retiros con timelock de 7 días. El stake no es confiscable: acredita al nodeit en el registro y funciona como barrera anti-Sybil, no como fianza que alguien pueda ejecutar
-- **SettlementHub:** el contrato que mueve los fondos — jala el USDC del payer y lo splittea atómicamente on-chain (99% comercio / 0.7% nodeit / 0.3% treasury) en una sola transacción; corazón del settlement gasless ERC-3009
+- **SettlementHub:** el contrato que mueve los fondos — jala el USDC del payer y lo splittea atómicamente on-chain (98.5% comercio / 1.05% nodeit / 0.45% treasury) en una sola transacción; corazón del settlement gasless ERC-3009
 
 Los tres contratos incluyen:
 - Guardian con capacidad de pausa de emergencia (ver sección 5.2)
@@ -167,8 +168,8 @@ const intent = await coatipay.paymentIntents.create({
 //    (el nodeit paga el gas — el pago es gasless para el cliente)
 
 // 4. SettlementHub.sol jala el USDC del cliente y lo splittea
-//    atómicamente on-chain: 99% al comercio, 0.7% al nodeit,
-//    0.3% al treasury. Emite el evento IntentSettled.
+//    atómicamente on-chain: 98.5% al comercio, 1.05% al nodeit,
+//    0.45% al treasury. Emite el evento IntentSettled.
 
 // 5. Un event watcher confirma el evento IntentSettled on-chain
 //    y la API marca el intent como settled.
@@ -232,7 +233,7 @@ Content-Type: application/json
 
 Stripe no puede hacer pagos pequeños (su fee mínimo de ~$0.30 + porcentaje los hace inviables). Nosotros liquidamos pagos pequeños gasless on-chain a partir de ~$0.30/llamada.
 
-> **Nota de economía (honesta).** El node paga el gas (ETH) y se queda el 0.7% del fee (USDC), así que cada liquidación tiene un piso: con gas de Base (~$0.002–0.005) el break-even ronda **~$0.30/llamada**. El node nunca liquida por debajo de ese piso (lo escala con el gas en vivo). Los micropagos **sub-centavo** ($0.001) solo se vuelven rentables con **netting** (acumular muchas llamadas de un pagador y liquidar la suma en una sola tx) — está en la hoja de ruta.
+> **Nota de economía (honesta).** El node paga el gas (ETH) y se queda el 1.05% del fee (USDC), así que cada liquidación tiene un piso: con gas de Base (~$0.002–0.005) el break-even ronda **~$0.30/llamada**. El node nunca liquida por debajo de ese piso (lo escala con el gas en vivo). Los micropagos **sub-centavo** ($0.001) solo se vuelven rentables con **netting** (acumular muchas llamadas de un pagador y liquidar la suma en una sola tx) — está en la hoja de ruta.
 
 ---
 
@@ -242,13 +243,13 @@ Stripe no puede hacer pagos pequeños (su fee mínimo de ~$0.30 + porcentaje los
 
 | Concepto | Fee | Quién paga |
 |----------|-----|------------|
-| Comisión del protocolo | 1.0% (100 bps) | Comercio |
+| Comisión del protocolo | 1.5% (150 bps) | Comercio |
 | Alta, cuota mensual o mínimos | — | No aplica |
 
-Distribución del 1.0%:
+Distribución del 1.5%:
 
-- **70%** → nodeit (USDC) — 0.7% del monto
-- **30%** → treasury del protocolo — 0.3% del monto
+- **70%** → nodeit (USDC) — 1.05% del monto
+- **30%** → treasury del protocolo — 0.45% del monto
 
 > **Nota — micropagos x402**: el split aplica igual on-chain. El payer ya es **gasless** vía
 > ERC-3009 — firma una autorización off-chain y el nodeit submitea la tx y paga el gas (ETH),
@@ -257,7 +258,7 @@ Distribución del 1.0%:
 > un break-even de **~$0.30/llamada**. El **sub-centavo** ($0.001) solo se vuelve rentable con
 > **netting off-chain** (acumular muchas llamadas de un mismo payer y liquidar la suma en una
 > sola tx) — está en la hoja de ruta, no implementado hoy. Ver [ADR-002](audits/adr/002-fee-structure-and-gas-abstraction.md) para el análisis
-> económico completo.
+> económico completo y [ADR-005](audits/adr/005-comision-al-1-5-por-ciento.md) para la revisión de la comisión a 150 bps.
 
 ### 4.2 Economía del nodeit
 
@@ -267,8 +268,8 @@ Los ingresos del nodeit escalan con el volumen de la red. Dos escenarios:
 
 ```
 Volumen mensual  = 1 comercio mediano × $50,000
-Fee total        = $50,000 × 0.010 = $500
-Ingreso del nodeit = $500 × 0.70 = $350/mes en USDC
+Fee total        = $50,000 × 0.015 = $750
+Ingreso del nodeit = $750 × 0.70 = $525/mes en USDC
 
 Resultado: cubre VPS + costos fijos cómodamente desde el primer comercio.
 ```
@@ -277,8 +278,8 @@ Resultado: cubre VPS + costos fijos cómodamente desde el primer comercio.
 
 ```
 Volumen mensual  = 1,000 tx/día × $50 promedio × 30 días = $1,500,000
-Fee total        = $1,500,000 × 0.010 = $15,000
-Ingreso del nodeit = $15,000 × 0.70 = $10,500/mes en USDC
+Fee total        = $1,500,000 × 0.015 = $22,500
+Ingreso del nodeit = $22,500 × 0.70 = $15,750/mes en USDC
 
 Resultado: salario competitivo para infraestructura ~$130/mes.
 ```
@@ -296,22 +297,25 @@ Gas operacional por intent: ~$0.0036 (registerIntent en Base mainnet)
 Total fijo aprox:         ~$110-130/mes
 ```
 
-Break-even al 0.7%: ~124 pagos/día con avg $5 (vs ~217/día al 0.4% del split anterior). Operadores chicos quedan dentro.
+Break-even al 1.05%: ~83 pagos/día con avg $5 — un tercio menos que los ~124/día que hacían falta al 0.7% anterior. Operadores chicos quedan dentro.
 
 ### 4.3 Comparación real
 
 Un comercio que procesa $50,000/mes paga a Stripe ~$1,480 mensuales (~$17,760 al año)
-con su tarifa publicada de 2.9% + $0.30 por transacción.
+con su tarifa publicada de 2.9% + $0.30 por transacción. Ese mismo volumen paga
+$750 al mes ($9,000 al año) con la comisión del 1.5%.
 
 La comisión de CoatiPay es una constante del contrato desplegado
 ([`SettlementHub.sol`](contracts/src/SettlementHub.sol)), no una tarifa comercial:
 cualquiera la verifica on-chain antes de integrarse, y el reparto entre nodeit y
-treasury está fijado en el mismo sitio. En pagos típicos de LATAM el ahorro frente a
-Stripe está en el orden del 65-90%.
+treasury está fijado en el mismo sitio. El ahorro frente a Stripe depende del tamaño
+del pago: ~49% en pagos grandes, donde manda el porcentaje; ~66% en un pago de $20 y
+~83% en uno de $5, donde el cargo fijo de $0.30 de Stripe pesa más.
 
-> Nota: el fee subió de 50 a 100 bps en [ADR-002](audits/adr/002-fee-structure-and-gas-abstraction.md).
-> El split 70/30 hace viable la economía del nodeit y acelera 3× el path al treasury
-> auto-financiable.
+> Nota: el fee subió de 50 a 100 bps en [ADR-002](audits/adr/002-fee-structure-and-gas-abstraction.md)
+> y de 100 a 150 bps en [ADR-005](audits/adr/005-comision-al-1-5-por-ciento.md), que
+> aprovecha el redespliegue ya obligado por ADR-004. El split 70/30 no cambió: hace
+> viable la economía del nodeit y acelera 3× el path al treasury auto-financiable.
 
 ### 4.4 Treasury
 
@@ -522,11 +526,11 @@ minStake (mainnet)       = 100,000,000   (100 USDC) — initial value at deploy
 minStake (Sepolia)       =  40,000,000   ( 40 USDC) — initial value at deploy
                            adjustable by guardian via NodeRegistry.updateMinStake(),
                            increase-only (never reduced).
-PROTOCOL_FEE_BPS         = 100           (1.0%)   — generated from SettlementHub.sol
+PROTOCOL_FEE_BPS         = 150           (1.5%)   — generated from SettlementHub.sol
 NODE_FEE_SHARE           = 0.70          (70% al nodeit)  — derived from OPERATOR_SHARE_BPS / PROTOCOL_FEE_BPS
 TREASURY_FEE_SHARE       = 0.30          (30% al treasury) — derived from TREASURY_SHARE_BPS / PROTOCOL_FEE_BPS
-OPERATOR_SHARE_BPS       = 70            (0.7% del monto)
-TREASURY_SHARE_BPS       = 30            (0.3% del monto)
+OPERATOR_SHARE_BPS       = 105           (1.05% del monto)
+TREASURY_SHARE_BPS       = 45            (0.45% del monto)
 DEFAULT_INTENT_TTL       = 1800          (30 minutos)
 STAKE_WITHDRAWAL_DAYS    = 7
 ROUTING_CANDIDATES       = 5

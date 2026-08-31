@@ -123,9 +123,9 @@ contract SettlementHubAuthBindingTest is Test, IntentSigning {
 
         hub.payIntentWithAuthorization(auth);
 
-        assertEq(usdc.balanceOf(merchant), 990_000_000, "comercio 99%");
-        assertEq(usdc.balanceOf(operator), 7_000_000, "nodeit 0.7%");
-        assertEq(usdc.balanceOf(treasury), 3_000_000, "treasury 0.3%");
+        assertEq(usdc.balanceOf(merchant), 985_000_000, "comercio 98.5%");
+        assertEq(usdc.balanceOf(operator), 10_500_000, "nodeit 1.05%");
+        assertEq(usdc.balanceOf(treasury), 4_500_000, "treasury 0.45%");
         assertEq(usdc.balanceOf(attacker), 0, "el atacante sigue sin recibir nada");
     }
 
@@ -146,7 +146,7 @@ contract SettlementHubAuthBindingTest is Test, IntentSigning {
 
         assertEq(liquidadas, 1, "solo prospera la legitima");
         assertEq(usdc.balanceOf(attacker), 0, "el atacante no recibe nada");
-        assertEq(usdc.balanceOf(merchant), 990_000_000, "el comercio honesto cobra");
+        assertEq(usdc.balanceOf(merchant), 985_000_000, "el comercio honesto cobra");
     }
 
     // ── Registro firmado (ADR-004) ────────────────────────────
@@ -211,7 +211,7 @@ contract SettlementHubAuthBindingTest is Test, IntentSigning {
         vm.prank(operator);
         hub.payIntentWithAuthorization(auth);
 
-        assertEq(usdc.balanceOf(merchant), 990_000_000, "el comercio real cobra el 99%");
+        assertEq(usdc.balanceOf(merchant), 985_000_000, "el comercio real cobra el 99%");
         assertEq(usdc.balanceOf(attacker), 0, "el atacante no recibe nada");
     }
 }

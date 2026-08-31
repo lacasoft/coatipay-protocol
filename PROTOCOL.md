@@ -48,7 +48,7 @@ USDC es aburrido. Es 1:1 con USD, redimible por Circle, y aceptado en todas part
 
 Los operadores de nodes hacen el trabajo — corren la infraestructura, mantienen el uptime, apuestan capital. Reciben la mayoría de los fees. La asignación del 30% al treasury es lo mínimo necesario para que el treasury sea **auto-sostenible** a volúmenes alcanzables (~$10M/mes vs ~$30M/mes con el split 80/20 anterior) — los nodes se benefician colectivamente del trabajo continuo que el treasury financia: auditorías, desarrollo de SDK, documentación, crecimiento comunitario.
 
-Si la parte del treasury fuera mayor, los operadores tendrían menos incentivo para correr nodes. Si fuera menor, el proyecto necesitaría rondas de financiamiento externo recurrentes para cubrir bienes públicos básicos. 70/30 es el equilibrio que mantiene viables a ambos lados (ver ADR-002 para el análisis económico completo).
+Si la parte del treasury fuera mayor, los operadores tendrían menos incentivo para correr nodes. Si fuera menor, el proyecto necesitaría rondas de financiamiento externo recurrentes para cubrir bienes públicos básicos. 70/30 es el equilibrio que mantiene viables a ambos lados (ver ADR-002 para el análisis económico completo; ADR-005 sube la comisión total a 150 bps y deja el reparto intacto).
 
 ### Por qué x402 es de primera clase, no un plugin
 
@@ -178,10 +178,10 @@ Node (observa, confirma, gana fee de)     ──────────┘
 Fee split por transacción:
 ```
 Monto = 1,000,000 (1.00 USDC)
-Fee total = 10,000 (1.0% = 100 bps)
-  └─ Parte del node (70%) = 7,000
-  └─ Treasury (30%) = 3,000
-El comercio recibe = 990,000
+Fee total = 15,000 (1.5% = 150 bps)
+  └─ Parte del node (70%) = 10,500
+  └─ Treasury (30%) = 4,500
+El comercio recibe = 985,000
 ```
 
 Para micropagos (x402, sub-cent): el split aplica igual on-chain. El payer ya es **gasless** vía
@@ -190,7 +190,7 @@ necesita ningún paymaster). Lo que limita el sub-centavo no es el gas del payer
 económico de cada liquidación on-chain: con gas de Base (~$0.0036 por intent) el break-even
 ronda **~$0.30/llamada**. Los micropagos **sub-centavo** ($0.001) solo se vuelven rentables con
 **netting off-chain** (acumular muchas llamadas de un mismo payer y liquidar la suma en una sola
-tx) — está en la hoja de ruta, no implementado hoy. Ver ADR-002 para el análisis económico.
+tx) — está en la hoja de ruta, no implementado hoy. Ver ADR-002 para el análisis económico y ADR-005 para la revisión de la comisión a 150 bps.
 
 ---
 
@@ -256,9 +256,9 @@ function getStakeInfo(address operator) external view returns (StakeInfo memory)
 **Responsabilidad:** El contrato que **mueve los fondos**. Jala USDC del payer y lo splittea atómicamente on-chain (comercio + node operator + treasury) en una sola transacción. Introducido en ADR-003 como el corazón del settlement gasless ERC-3009.
 
 ```solidity
-uint16  public constant PROTOCOL_FEE_BPS   = 100;  // 1.0% fee total
-uint16  public constant TREASURY_SHARE_BPS = 30;   // 0.3% al treasury
-uint16  public constant OPERATOR_SHARE_BPS = 70;   // 0.7% al node operator
+uint16  public constant PROTOCOL_FEE_BPS   = 150;  // 1.5% fee total
+uint16  public constant TREASURY_SHARE_BPS = 45;   // 0.45% al treasury
+uint16  public constant OPERATOR_SHARE_BPS = 105;  // 1.05% al node operator
 uint256 public constant MAX_BATCH_SIZE     = 50;   // cap del batch (x402)
 
 // Única dirección cuya firma autoriza a registrar un intent. Inmutable.
@@ -300,7 +300,7 @@ event IntentSettled(...);   // fuente de verdad off-chain del settlement
 
 Por eso la recomendación para producción es desplegar `intentSigner` como multisig. Su dirección se pasa al constructor y no se puede cambiar después, así que decidir umbral y custodia de las llaves forma parte del despliegue, no es un ajuste posterior. La pausa sigue siendo la palanca de emergencia para el caso en que se comprometa el umbral entero. `contracts/test/SettlementHub.multisigSigner.t.sol` cubre esta configuración con un multisig 2-de-3: seis tests, incluido el de retirar una llave comprometida sin redesplegar, y el que comprueba que la ruta de cartera normal sigue funcionando.
 
-**Split de fondos (atómico, on-chain):** sobre un monto `amount`, el contrato transfiere `99%` al comercio, `0.7%` al node operator y `0.3%` al treasury, en la misma transacción. El comercio absorbe cualquier residuo de redondeo (nunca pierde fondos por debajo del split). Las constantes son `public constant` — no configurables, no hay forma de cambiar el fee post-deploy.
+**Split de fondos (atómico, on-chain):** sobre un monto `amount`, el contrato transfiere `98.5%` al comercio, `1.05%` al node operator y `0.45%` al treasury, en la misma transacción. El comercio absorbe cualquier residuo de redondeo (nunca pierde fondos por debajo del split). Las constantes son `public constant` — no configurables, no hay forma de cambiar el fee post-deploy.
 
 **Camino gasless (ERC-3009):** el payer firma off-chain una autorización `ReceiveWithAuthorization` (EIP-712); el node operator la submitea vía `payIntentWithAuthorization` y paga el gas. USDC fuerza `msg.sender == to`, lo que elimina el front-running on-chain de la autorización. **La autorización va atada a su intent:** el contrato exige `nonce == intentId` y revierte con `AuthorizationNotBoundToIntent` en caso contrario, así que una firma solo sirve para el intent cuyo identificador lleva como nonce y quien envía la transacción no puede redirigir el dinero. El nonce se quema en el primer uso (replay protection nativa de USDC). La autorización viaja como una firma `bytes` cruda y se liquida con el overload `receiveWithAuthorization(…, bytes)` de USDC (`SignatureChecker`), así que **funciona tanto para wallets EOA (firma ECDSA) como para smart wallets ERC-1271** (p. ej. Coinbase Smart Wallet). Las cuentas *counterfactual* (smart wallet sin desplegar → firma ERC-6492) son trabajo de una fase posterior.
 
@@ -349,7 +349,7 @@ interface PaymentIntent {
 
 ### 5.3 Reglas de Transición
 
-**created → settled** — el evento on-chain `IntentSettled` emitido por `SettlementHub.sol` se confirma. El payer firmó una autorización ERC-3009, el daemon del nodeit la submiteó al contrato, y el contrato jaló el USDC del payer y lo splitteó atómicamente (99% al comercio, 0.7% al nodeit, 0.3% al treasury). Se dispara el webhook `payment_intent.settled`.
+**created → settled** — el evento on-chain `IntentSettled` emitido por `SettlementHub.sol` se confirma. El payer firmó una autorización ERC-3009, el daemon del nodeit la submiteó al contrato, y el contrato jaló el USDC del payer y lo splitteó atómicamente (98.5% al comercio, 1.05% al nodeit, 0.45% al treasury). Se dispara el webhook `payment_intent.settled`.
 
 **created → expired** — se alcanza el timestamp `expires_at` sin que el intent llegue a `settled`.
 
@@ -381,7 +381,7 @@ El settlement no se hace por un endpoint HTTP expuesto del nodeit. El flujo es:
 1. El payer firma off-chain una autorización EIP-712 `ReceiveWithAuthorization`.
 2. El SDK envía esa autorización a la API, que la encola.
 3. El daemon del nodeit poletea la cola de la API, reclama la autorización y submitea `payIntentWithAuthorization` al contrato `SettlementHub.sol`. El nodeit paga el gas de esta transacción.
-4. `SettlementHub.sol` jala el USDC del payer y lo splittea atómicamente on-chain (99% comercio, 0.7% nodeit, 0.3% treasury) y emite el evento `IntentSettled`.
+4. `SettlementHub.sol` jala el USDC del payer y lo splittea atómicamente on-chain (98.5% comercio, 1.05% nodeit, 0.45% treasury) y emite el evento `IntentSettled`.
 5. Un event watcher confirma el settlement leyendo el evento `IntentSettled` on-chain, y la API marca el intent como `settled` y dispara el webhook.
 
 El nodeit nunca retiene fondos en ningún momento: el USDC se mueve del payer al comercio dentro de una sola transacción atómica del contrato.
@@ -487,7 +487,7 @@ export const GET = relay.x402.handler({
 |---|---|
 | Node roba fondos | Los fondos nunca pasan por los nodes — siempre payer-a-comercio |
 | Node enruta a dirección equivocada | La dirección del comercio la fija la capa de API y viaja **firmada** (EIP-712 de `intentSigner`): el nodeit envía el registro pero no puede cambiar su contenido |
-| Node cobra fee sin liquidar | No puede: el 0.7% del nodeit sale del **mismo split atómico** que paga al comercio, en la misma transacción. Sin liquidación no hay fee que cobrar |
+| Node cobra fee sin liquidar | No puede: el 1.05% del nodeit sale del **mismo split atómico** que paga al comercio, en la misma transacción. Sin liquidación no hay fee que cobrar |
 | Ataque Sybil | `minStake` de 100 USDC (mainnet) hace que Sybil sea costoso |
 | Node exit scam | Timelock de retiro de 7 días: la salida es visible on-chain una semana antes de que el stake se mueva |
 | Double-spend | El settlement es una transacción atómica de `SettlementHub.sol`; el intent pasa a `settled` solo al confirmarse el evento `IntentSettled` on-chain |

@@ -58,9 +58,9 @@ contract SettlementHubTest is Test, IntentSigning {
     // ── Constants ─────────────────────────────────────────────
 
     function test_Constants_FeeMath() public view {
-        assertEq(hub.PROTOCOL_FEE_BPS(), 100, "1.0% total");
-        assertEq(hub.TREASURY_SHARE_BPS(), 30, "0.3% to treasury");
-        assertEq(hub.OPERATOR_SHARE_BPS(), 70, "0.7% to operator");
+        assertEq(hub.PROTOCOL_FEE_BPS(), 150, "1.5% total");
+        assertEq(hub.TREASURY_SHARE_BPS(), 45, "0.45% to treasury");
+        assertEq(hub.OPERATOR_SHARE_BPS(), 105, "1.05% to operator");
         assertEq(hub.PROTOCOL_FEE_BPS(), hub.TREASURY_SHARE_BPS() + hub.OPERATOR_SHARE_BPS());
     }
 
@@ -198,9 +198,9 @@ contract SettlementHubTest is Test, IntentSigning {
         usdc.approve(address(hub), AMOUNT);
 
         // Expected split: 1000 USDC = 990 merchant + 7 operator + 3 treasury
-        uint256 treasuryFee = (AMOUNT * 30) / 10_000; // 0.3% = 3_000_000
-        uint256 operatorFee = (AMOUNT * 70) / 10_000; // 0.7% = 7_000_000
-        uint256 merchantAmount = AMOUNT - treasuryFee - operatorFee; // 990_000_000
+        uint256 treasuryFee = (AMOUNT * 45) / 10_000; // 0.45% = 4_500_000
+        uint256 operatorFee = (AMOUNT * 105) / 10_000; // 1.05% = 10_500_000
+        uint256 merchantAmount = AMOUNT - treasuryFee - operatorFee; // 985_000_000
 
         vm.expectEmit(true, true, false, true);
         emit SettlementHub.IntentSettled(INTENT_ID, payer, merchantAmount, operatorFee, treasuryFee);
@@ -210,8 +210,8 @@ contract SettlementHubTest is Test, IntentSigning {
 
         // Verify split
         assertEq(usdc.balanceOf(merchant), merchantAmount, "merchant gets 99.0%");
-        assertEq(usdc.balanceOf(operator), operatorFee, "operator gets 0.7%");
-        assertEq(usdc.balanceOf(treasury), treasuryFee, "treasury gets 0.3%");
+        assertEq(usdc.balanceOf(operator), operatorFee, "operator gets 1.05%");
+        assertEq(usdc.balanceOf(treasury), treasuryFee, "treasury gets 0.45%");
         assertEq(usdc.balanceOf(address(hub)), 0, "contract holds nothing post-settle");
 
         // Status updated
@@ -302,9 +302,9 @@ contract SettlementHubTest is Test, IntentSigning {
         hub.payIntentWithPermit(INTENT_ID, deadline, v, r, s);
 
         // Same split as payIntent
-        assertEq(usdc.balanceOf(merchant), 990_000_000);
-        assertEq(usdc.balanceOf(operator), 7_000_000);
-        assertEq(usdc.balanceOf(treasury), 3_000_000);
+        assertEq(usdc.balanceOf(merchant), 985_000_000);
+        assertEq(usdc.balanceOf(operator), 10_500_000);
+        assertEq(usdc.balanceOf(treasury), 4_500_000);
     }
 
     function test_PayIntentWithPermit_BadSignature_FallsThroughToTransferFromRevert() public {
@@ -361,7 +361,7 @@ contract SettlementHubTest is Test, IntentSigning {
         hub.payIntentWithPermit(INTENT_ID, deadline, v, r, s);
 
         // Settlement happened correctly
-        assertEq(usdc.balanceOf(merchant), 990_000_000, "merchant got paid");
+        assertEq(usdc.balanceOf(merchant), 985_000_000, "merchant got paid");
     }
 
     function test_PayIntentWithPermit_Revert_IntentNotFound() public {
@@ -450,11 +450,13 @@ contract SettlementHubTest is Test, IntentSigning {
     }
 
     function test_PreviewSplit_RoundsDown() public view {
-        // 1000 base units. Treasury = 3, operator = 7, merchant = 990.
+        // 1000 unidades base. Treasury = 4 (45 bps redondeando a la baja),
+        // operador = 10 (105 bps), comercio = 986. El redondeo a la baja
+        // favorece al comercio: nunca se pierde polvo ni se cobra de más.
         (uint256 m, uint256 o, uint256 t) = hub.previewSplit(1000);
-        assertEq(m, 990);
-        assertEq(o, 7);
-        assertEq(t, 3);
+        assertEq(m, 986);
+        assertEq(o, 10);
+        assertEq(t, 4);
         assertEq(m + o + t, 1000, "no dust lost");
     }
 

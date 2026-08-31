@@ -275,12 +275,12 @@ que pueda tocar el dinero.
 
 **Responsabilidad:** Settlement trustless on-chain y split atómico de fees. Es el contrato que **mueve los fondos** — jala el USDC del payer y lo splittea on-chain (comercio + node operator + treasury) en una sola transacción, reemplazando el modelo de confianza previo de "el daemon del operador reenvía los fondos".
 
-**Split de fees (atómico, on-chain):** para cualquier `amount`, el contrato envía 99% al comercio, 0.7% al node operator y 0.3% al treasury, en la misma transacción. Las constantes de fee son `public constant` — no configurables, sin forma de cambiar el fee post-deploy:
+**Split de fees (atómico, on-chain):** para cualquier `amount`, el contrato envía 98.5% al comercio, 1.05% al node operator y 0.45% al treasury, en la misma transacción. Las constantes de fee son `public constant` — no configurables, sin forma de cambiar el fee post-deploy:
 
 ```solidity
-uint16  public constant PROTOCOL_FEE_BPS   = 100;  // 1.0% fee total
-uint16  public constant OPERATOR_SHARE_BPS = 70;   // 0.7% al node operator
-uint16  public constant TREASURY_SHARE_BPS = 30;   // 0.3% al treasury
+uint16  public constant PROTOCOL_FEE_BPS   = 150;  // 1.5% fee total
+uint16  public constant OPERATOR_SHARE_BPS = 105;  // 1.05% al node operator
+uint16  public constant TREASURY_SHARE_BPS = 45;   // 0.45% al treasury
 uint256 public constant MAX_BATCH_SIZE     = 50;   // tope de batch (x402)
 ```
 
@@ -613,7 +613,7 @@ El settlement no se dispara por un endpoint HTTP expuesto del nodeit, sino por u
 
 1. El payer firma off-chain una autorización EIP-712 `ReceiveWithAuthorization` con su propia wallet. El SDK la envía a la API, que la encola.
 2. El daemon del nodeit poletea esa cola, reclama una autorización pendiente y submitea `payIntentWithAuthorization` a `SettlementHub.sol`. **El nodeit paga el gas de esta transacción.**
-3. `SettlementHub.sol` jala el USDC del payer y lo splittea atómicamente on-chain (99% comercio, 0.7% nodeit, 0.3% treasury) y emite `IntentSettled`.
+3. `SettlementHub.sol` jala el USDC del payer y lo splittea atómicamente on-chain (98.5% comercio, 1.05% nodeit, 0.45% treasury) y emite `IntentSettled`.
 4. Un event watcher confirma el settlement leyendo el evento `IntentSettled` y la API marca el intent como `settled`.
 
 No hay autenticación HMAC entre la API y el nodeit: el nodeit consume la cola de la API y el settlement se valida on-chain, no por una firma de request. El comercio nunca define una dirección de pago — el USDC va del payer al comercio dentro de la transacción atómica del contrato.
@@ -791,9 +791,9 @@ relay.x402.middleware({ price: 50000 }) // $0.05  → enrutado
 [SettlementHub.sol — transacción atómica on-chain]
   Jala el USDC del payer vía ERC-3009
   Splittea el monto on-chain:
-    99.0% → wallet del comercio
-     0.7% → nodeit (OPERATOR_SHARE_BPS = 70)
-     0.3% → treasury (TREASURY_SHARE_BPS = 30)
+    98.5% → wallet del comercio
+    1.05% → nodeit (OPERATOR_SHARE_BPS = 105)
+    0.45% → treasury (TREASURY_SHARE_BPS = 45)
   Emite el evento IntentSettled
         │
         ▼
@@ -849,21 +849,21 @@ On-chain:          SettlementHub.sol jala el USDC del payer y lo splittea
                    atómicamente en una sola transacción (sin payment_address
                    intermedia — el USDC va directo del payer al comercio)
 
-Merchant receives: $99.000000 USDC
-Node receives:     $00.700000 USDC (70% of 1.0% fee)
-Treasury receives: $00.300000 USDC (30% of 1.0% fee)
+Merchant receives: $98.500000 USDC
+Node receives:     $01.050000 USDC (70% of 1.5% fee)
+Treasury receives: $00.450000 USDC (30% of 1.5% fee)
 ```
 
 Para un micropago x402 de $0.001 USDC (ilustrativo — está POR DEBAJO del piso económico:
-la participación de $0.0000070 del node no cubre ~$0.003 de gas, así que el node no
+la participación de $0.0000105 del node no cubre ~$0.003 de gas, así que el node no
 liquidaría esto individualmente; sub-cent necesita netting):
 ```
-Total fee:     $0.0000100 (1.0% of $0.001)
-Node receives: $0.0000070
-Treasury:      $0.0000030
+Total fee:     $0.0000150 (1.5% of $0.001)
+Node receives: $0.0000105
+Treasury:      $0.0000045
 ```
 
-El fee del protocolo es puramente proporcional (1.0%, sin componente fijo), pero cada settlement on-chain le cuesta al nodeit gas que paga de su 0.7%, así que un settlement on-chain **individual** solo alcanza el punto de equilibrio alrededor de **~$0.30/llamada** — y la API impone un piso `MIN_PAYMENT_AMOUNT` (default $0.30), rechazando intents por debajo. Los micropagos sub-cent reales solo son viables con **netting** off-chain (acumular muchas llamadas y liquidar la suma una vez), que está en el roadmap. Aun así, el modelo proporcional de CoatiPay le gana a los procesadores tradicionales cuyo fee fijo (~$0.30 *por* transacción) hace antieconómico cualquier pago pequeño a cualquier volumen.
+El fee del protocolo es puramente proporcional (1.5%, sin componente fijo), pero cada settlement on-chain le cuesta al nodeit gas que paga de su 1.05%, así que un settlement on-chain **individual** solo alcanza el punto de equilibrio alrededor de **~$0.30/llamada** — y la API impone un piso `MIN_PAYMENT_AMOUNT` (default $0.30), rechazando intents por debajo. Los micropagos sub-cent reales solo son viables con **netting** off-chain (acumular muchas llamadas y liquidar la suma una vez), que está en el roadmap. Aun así, el modelo proporcional de CoatiPay le gana a los procesadores tradicionales cuyo fee fijo (~$0.30 *por* transacción) hace antieconómico cualquier pago pequeño a cualquier volumen.
 
 ### 11.2 Modelo de rentabilidad del node
 
@@ -871,13 +871,13 @@ Un node operator puede estimar las ganancias esperadas:
 
 ```
 monthly_volume    = transactions_per_day × avg_amount × 30
-monthly_gross_fee = monthly_volume × 0.01
+monthly_gross_fee = monthly_volume × 0.015
 node_earnings     = monthly_gross_fee × 0.70
 
 Example: 1,000 tx/day, avg $50
   monthly_volume    = $1,500,000
-  monthly_gross_fee = $15,000
-  node_earnings     = $10,500/month in USDC
+  monthly_gross_fee = $22,500
+  node_earnings     = $15,750/month in USDC
 ```
 
 Costos para un node básico:
@@ -887,7 +887,7 @@ Minimum stake (100 USDC mainnet · 40 USDC testnet): one-time, recoverable
 Base gas for registration: ~$0.005
 ```
 
-El umbral de rentabilidad ronda los $3,000 de volumen mensual (≈300 transacciones a $10, o 60 a $50) — el punto donde las ganancias del node cubren el costo del VPS. Muy por debajo de lo que cualquier comercio activo generaría.
+El umbral de rentabilidad ronda los $2,000 de volumen mensual (≈200 transacciones a $10, o 40 a $50) — el punto donde las ganancias del node cubren el costo del VPS. Muy por debajo de lo que cualquier comercio activo generaría.
 
 ### 11.3 Modelo del treasury
 
@@ -910,7 +910,7 @@ La asignación del treasury la decide la Fundación; el balance es públicamente
 *Mitigación:* El split lo ejecuta `SettlementHub.sol` en una transacción atómica on-chain — el nodeit no controla el destino de los fondos. La dirección del comercio está fijada en el intent y **autenticada**: el contrato solo registra intents firmados por `intentSigner` (§4.3), así que el nodeit que envía la transacción no puede sustituirla por la suya. Y la autorización ERC-3009 del pagador solo sirve para el intent cuyo identificador es su nonce, así que tampoco puede aplicarse a un intent ajeno. El nodeit solo submitea la transacción y paga el gas; no puede tocar ni redirigir el USDC.
 
 *Amenaza:* Aceptar trabajo y luego irse offline sin liquidar el intent.
-*Mitigación:* No hay nada que capturar: mientras el intent no se liquida, el USDC sigue en la wallet del payer. Un nodeit que no liquida **se autocastiga** — no cobra su 0.7% — y el intent caduca en `expires_at`; cualquiera puede cerrarlo con `cancelExpired()` y el comercio emite uno nuevo. El timelock de retiro de 7 días hace además que la salida del nodeit sea visible on-chain con una semana de antelación (§4.2).
+*Mitigación:* No hay nada que capturar: mientras el intent no se liquida, el USDC sigue en la wallet del payer. Un nodeit que no liquida **se autocastiga** — no cobra su 1.05% — y el intent caduca en `expires_at`; cualquiera puede cerrarlo con `cancelExpired()` y el comercio emite uno nuevo. El timelock de retiro de 7 días hace además que la salida del nodeit sea visible on-chain con una semana de antelación (§4.2).
 
 **Compromiso de la clave `intentSigner`**
 
@@ -958,7 +958,7 @@ Estas invariantes deben preservarse a través de todas las actualizaciones de co
 3. `NodeRegistry.getActiveNodes()` nunca contiene una dirección con `active = false`
 4. `SettlementHub`: ningún intent queda registrado sin una firma válida de `intentSigner`, y un `intentId` no puede registrarse dos veces
 5. `SettlementHub`: una autorización ERC-3009 solo puede aplicarse al intent cuyo identificador es su nonce, y cada intent liquida como máximo una vez
-6. `SettlementHub`: el reparto suma exactamente el importe liquidado (99% / 0.7% / 0.3%) y el contrato no retiene USDC entre transacciones
+6. `SettlementHub`: el reparto suma exactamente el importe liquidado (98.5% / 1.05% / 0.45%) y el contrato no retiene USDC entre transacciones
 
 ### 12.4 Requisitos de auditoría
 
@@ -1145,7 +1145,7 @@ El deploy de referencia en Base Sepolia ya está live (2026-04-18) — las direc
 # 2. Configure deployment .env
 DEPLOYER_PRIVATE_KEY=0x...
 USDC_ADDRESS=0x036CbD53842c5426634e7929541eC2318f3dCF7e  # Base Sepolia USDC
-TREASURY_ADDRESS=0x...         # recibe el 0.3%; cartera distinta del deployer
+TREASURY_ADDRESS=0x...         # recibe el 0.45%; cartera distinta del deployer
 GUARDIAN_ADDRESS=0x...         # pausa y setMinStake; distinta del deployer y del treasury
 INTENT_SIGNER_ADDRESS=0x...    # firma los registros de intent (ADR-004); inmutable tras el deploy
 MIN_STAKE_USDC_UNITS=40000000  # opcional — 40 USDC por defecto
@@ -1195,7 +1195,7 @@ Para despliegue en producción, consideraciones adicionales:
 
 | | CoatiPay | Stripe |
 |---|---|---|
-| Fee por transacción | 1.0% | 2.9% + $0.30 |
+| Fee por transacción | 1.5% | 2.9% + $0.30 |
 | Transacción mínima | ~$0.30 (piso económico; sub-cent necesita netting — roadmap) | ~$0.50 (los fees hacen antieconómicas las menores) |
 | Soporte de fiat | No | Sí (Visa, MC, ACH) |
 | Soporte de cripto | USDC, BTC | Limitado |
@@ -1207,7 +1207,7 @@ Para despliegue en producción, consideraciones adicionales:
 
 **Cuándo usar Stripe:** Cuando necesitas fiat (tarjetas de crédito, transferencias bancarias) o necesitas que alguien más maneje el cumplimiento. Stripe y CoatiPay son complementarios — muchos comercios deberían usar ambos.
 
-**Cuándo usar CoatiPay:** Cuando aceptas cripto, necesitas cero fees, necesitas micropagos, estás construyendo infraestructura de agentes de IA, o estás en un mercado donde Stripe no llega.
+**Cuándo usar CoatiPay:** Cuando aceptas cripto, quieres una comisión baja y verificable on-chain, necesitas micropagos, estás construyendo infraestructura de agentes de IA, o estás en un mercado donde Stripe no llega.
 
 ### 16.2 CoatiPay vs. BTCPay Server
 
@@ -1228,7 +1228,7 @@ BTCPay Server es el precedente más cercano a CoatiPay. CoatiPay es esencialment
 | | CoatiPay | Institucional |
 |---|---|---|
 | Propiedad | Comunidad / nadie | Accionistas |
-| Fees | 0–1.0% | Por determinar (típicamente 0.5–2%) |
+| Fees | 1.5% (constante del contrato) | Por determinar (típicamente 0.5–2%) |
 | Censurable | No (nodes sin permisos) | Sí (cumplimiento regulatorio) |
 | Auditable | Totalmente (código abierto) | Parcialmente |
 | Nativo para agentes de IA | Sí | No |
@@ -1246,7 +1246,7 @@ Estas son las propiedades que CoatiPay garantiza a todos los participantes. Debe
 ### Para comercios
 
 1. Los fondos recibidos en el wallet del comercio son tuyos — ninguna parte puede recuperarlos o congelarlos después del settlement
-2. La dirección que cobra el 99% está autenticada: `SettlementHub` solo registra un intent si viene firmado por `intentSigner`, así que el nodeit que envía la transacción no puede sustituirla por la suya
+2. La dirección que cobra el 98.5% está autenticada: `SettlementHub` solo registra un intent si viene firmado por `intentSigner`, así que el nodeit que envía la transacción no puede sustituirla por la suya
 3. Tu API key nunca se transmite en logs o mensajes de error — solo el prefijo de la key se almacena para identificación
 4. Las firmas de webhook se computan sobre el payload exacto — cualquier modificación invalida la firma
 
@@ -1264,7 +1264,7 @@ Estas son las propiedades que CoatiPay garantiza a todos los participantes. Debe
 ### Para el protocolo
 
 1. No existe admin key que pueda mover fondos, actualizar o reescribir el estado de los contratos desplegados. La única acción privilegiada es una **pausa de emergencia** (la base `Pausable`) en manos de un guardian multisig 3-de-5 — bloquea el registro y las nuevas escrituras pero no puede mover fondos, detener settlements en vuelo, ni cambiar las reglas
-2. El fee split (70/30 nodeit/treasury, 100 bps total — ver ADR-002) está codificado en el protocolo (`SettlementHub.sol` constants) y no puede cambiarse sin un nuevo despliegue
+2. El fee split (70/30 nodeit/treasury, 150 bps total — ver ADR-002, revisado en ADR-005) está codificado en el protocolo (`SettlementHub.sol` constants) y no puede cambiarse sin un nuevo despliegue
 3. El stake mínimo (`minStake`) es una variable de estado ajustable por el guardian vía `NodeRegistry.setMinStake()`, pero el contrato **rechaza reducciones** — solo incrementos. Esto permite que la red aumente la barrera anti-Sybil conforme madura (valor inicial: 100 USDC en mainnet, 40 USDC en Sepolia testnet) sin invalidar a operadores ya registrados.
 4. Todos los registros de nodes son sin permisos — ningún comité de whitelist puede bloquear a un node de unirse
 5. Existe una centralización, y está declarada: `intentSigner`, la dirección cuya firma autoriza registrar intents (ADR-004). Ata cada intent a su comercio y **no puede mover fondos** — ni redirigir intents ya registrados ni tocar los liquidados. La dirección es inmutable a propósito, así que ni el guardian puede rotarla; pero puede ser un multisig ERC-1271, y **en producción debe serlo**: así los firmantes se rotan por dentro y un compromiso se responde retirando una llave, no redesplegando (con una cartera normal, la única respuesta sigue siendo pausar y redesplegar)
