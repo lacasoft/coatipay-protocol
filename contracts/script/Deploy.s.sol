@@ -113,9 +113,21 @@ contract Deploy is Script {
         require(settlementHub.treasury() == treasury, "SettlementHub: wrong treasury");
         require(settlementHub.intentSigner() == intentSigner, "SettlementHub: wrong intentSigner");
         require(settlementHub.guardian() == guardian, "SettlementHub: guardian not set");
-        require(settlementHub.PROTOCOL_FEE_BPS() == 100, "SettlementHub: wrong fee bps (expected ADR-002 100)");
-        require(settlementHub.TREASURY_SHARE_BPS() == 30, "SettlementHub: wrong treasury bps");
-        require(settlementHub.OPERATOR_SHARE_BPS() == 70, "SettlementHub: wrong operator bps");
+        // Estos numeros se repiten a proposito: son la comprobacion de que el
+        // artefacto desplegado es el que creemos. Repetir el valor del contrato
+        // aqui no seria comprobacion ninguna.
+        //
+        // Por eso mismo hay que moverlos CON el contrato. El gate
+        // `check:fee-constants` compara estas tres lineas contra
+        // SettlementHub.sol y falla si divergen. ADR-005: 150 / 45 / 105.
+        require(settlementHub.PROTOCOL_FEE_BPS() == 150, "SettlementHub: wrong fee bps (expected ADR-005 150)");
+        require(settlementHub.TREASURY_SHARE_BPS() == 45, "SettlementHub: wrong treasury bps");
+        require(settlementHub.OPERATOR_SHARE_BPS() == 105, "SettlementHub: wrong operator bps");
+        // Relacion derivada: se mantiene sola aunque cambien los valores.
+        require(
+            settlementHub.OPERATOR_SHARE_BPS() + settlementHub.TREASURY_SHARE_BPS() == settlementHub.PROTOCOL_FEE_BPS(),
+            "SettlementHub: shares do not sum to the protocol fee"
+        );
         require(settlementHub.MAX_BATCH_SIZE() == 50, "SettlementHub: wrong max batch size");
         console.log("All checks passed.");
     }
