@@ -23,6 +23,12 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SOURCE = resolve(__dirname, '../../contracts/src/SettlementHub.sol')
 const TARGET = resolve(__dirname, '../src/fee-constants.generated.ts')
+// El script de despliegue REPITE los valores a proposito, como comprobacion de
+// que el artefacto desplegado es el esperado. Esa repeticion es util, pero se
+// queda atras: al pasar de 100 a 150 bps (ADR-005) el `require` viejo habria
+// hecho revertir el despliegue, y `forge test` no lo detecta porque no ejecuta
+// los scripts. Por eso el gate tambien lo vigila.
+const DEPLOY_SCRIPT = resolve(__dirname, '../../contracts/script/Deploy.s.sol')
 
 /// Extract any `uintN public constant <NAME> = <expr>;` from the Solidity
 /// source. Supports plain integer literals and simple subtraction
@@ -100,9 +106,47 @@ export const MAX_BATCH_SIZE = ${ctx.MAX_BATCH_SIZE}
   }
 }
 
+/// Comprueba que las aserciones repetidas de Deploy.s.sol siguen coincidiendo
+/// con el contrato. Devuelve la lista de divergencias.
+function checkDeployScript(ctx: Record<string, number>): string[] {
+  let sol: string
+  try {
+    sol = readFileSync(DEPLOY_SCRIPT, 'utf-8')
+  } catch {
+    return [`${DEPLOY_SCRIPT} no se pudo leer`]
+  }
+  const problemas: string[] = []
+  const vistos = new Set<string>()
+  const re = /settlementHub\.(\w+)\(\)\s*==\s*(\d+)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(sol)) !== null) {
+    const [, nombre, valorTexto] = m
+    if (!(nombre in ctx)) continue
+    vistos.add(nombre)
+    const valor = Number(valorTexto)
+    if (valor !== ctx[nombre]) {
+      problemas.push(`Deploy.s.sol exige ${nombre} == ${valor}, pero el contrato declara ${ctx[nombre]}`)
+    }
+  }
+  for (const nombre of ['PROTOCOL_FEE_BPS', 'TREASURY_SHARE_BPS', 'OPERATOR_SHARE_BPS']) {
+    if (!vistos.has(nombre)) {
+      problemas.push(`Deploy.s.sol ya no comprueba ${nombre}: la verificacion de despliegue perdio cobertura`)
+    }
+  }
+  return problemas
+}
+
 const mode = process.argv.includes('--check') ? 'check' : 'write'
 
 const result = generate()
+
+const derivas = checkDeployScript(result.values as unknown as Record<string, number>)
+if (derivas.length > 0) {
+  console.error('Deriva en el script de despliegue:')
+  for (const d of derivas) console.error(`  - ${d}`)
+  console.error('El despliegue revertiria. Actualiza contracts/script/Deploy.s.sol.')
+  process.exit(1)
+}
 
 if (mode === 'check') {
   let existing: string
