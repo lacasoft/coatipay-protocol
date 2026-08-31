@@ -12,8 +12,8 @@ qué falla, cómo reproducirlo, y qué impacto le ves. Un reporte parcial es mej
 que ningún reporte.
 
 - Acusamos recibo en **48 horas**.
-- **Reconocimiento público** cuando el fix esté desplegado, y sitio en el hall
-  of fame de este documento.
+- **Reconocimiento público** cuando el fix esté desplegado, y sitio en el [hall of
+  fame](#hall-of-fame) de este documento.
 - **Recompensa en USDC** por hallazgos críticos, discrecional y acordada caso
   por caso, **cuando el treasury tenga flujo sostenido**. Somos early-stage y
   hoy no lo tiene: preferimos decírtelo antes de que inviertas tu tiempo, no
@@ -51,3 +51,23 @@ el código fuente verificado en Basescan.
 > cambio en la fuente —incluido un comentario— altera el hash de metadata y la
 > fuente dejaría de reproducir el bytecode desplegado. La verificación
 > reproducible vale más que la consistencia cosmética.
+
+## Hall of fame
+
+Quienes encontraron un fallo de seguridad y nos lo contaron antes que a nadie,
+dándonos la oportunidad de corregirlo antes de que le costara dinero a alguien.
+
+| Fecha | Hallazgo | Severidad | Reporta |
+|---|---|---|---|
+| 2026-08 | La firma ERC-3009 no estaba atada al intent: el destino del pago lo decidía un campo de calldata que elige el nodeit | Crítica | *(pendiente)* |
+| 2026-08 | El sistema de disputas no validaba nada y castigaba a las 48 h sin votación | Alta | *(pendiente)* |
+
+Ambos corregidos en
+[ADR-004](audits/adr/004-auth-binding-y-retirada-de-disputas.md). El primero,
+además, nos llevó a un tercer fallo de la misma clase que el reporte no cubría
+y que por nuestra cuenta no habríamos buscado.
+
+> **Por qué las entradas aún no llevan nombre.** Esta política dice que
+> identificarse es decisión de quien reporta, así que no publicamos el nombre de
+> nadie sin preguntarle. Se lo hemos preguntado y completaremos la tabla con lo
+> que nos responda, anonimato incluido.
