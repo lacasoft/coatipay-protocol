@@ -57,15 +57,15 @@ dándonos la oportunidad de corregirlo antes de que le costara dinero a alguien.
 
 | Fecha | Hallazgo | Severidad | Reporta |
 |---|---|---|---|
-| 2026-08 | La firma ERC-3009 no estaba atada al intent: el destino del pago lo decidía un campo de calldata que elige el nodeit | Crítica | *(pendiente)* |
-| 2026-08 | El sistema de disputas no validaba nada y castigaba a las 48 h sin votación | Alta | *(pendiente)* |
+| 2026-08 | La firma ERC-3009 no estaba atada al intent: el destino del pago lo decidía un campo de calldata que elige el nodeit | Crítica | [ibnu76](https://github.com/ibnu76) |
+| 2026-08 | El sistema de disputas no validaba nada y castigaba a las 48 h sin votación | Alta | [ibnu76](https://github.com/ibnu76) |
 
 Ambos corregidos en
 [ADR-004](audits/adr/004-auth-binding-y-retirada-de-disputas.md). El primero,
 además, nos llevó a un tercer fallo de la misma clase que el reporte no cubría
 y que por nuestra cuenta no habríamos buscado.
 
-> **Por qué las entradas aún no llevan nombre.** Esta política dice que
-> identificarse es decisión de quien reporta, así que no publicamos el nombre de
-> nadie sin preguntarle. Se lo hemos preguntado y completaremos la tabla con lo
-> que nos responda, anonimato incluido.
+Ambos hallazgos llegaron con pruebas de concepto que funcionaban, y con la
+severidad bien calibrada: F-2 se reportó como denegación de servicio y no como
+robo, que es lo que era. Esa honestidad es la razón por la que nos tomamos el
+resto en serio y fuimos a buscar más.

@@ -8,7 +8,7 @@
 
 ## Contexto
 
-El 2026-08-29 recibimos la divulgación externa de un investigador sobre los
+El 2026-08-29 recibimos la divulgación externa de [ibnu76](https://github.com/ibnu76) sobre los
 contratos públicos, con pruebas de concepto ejecutables. Reprodujimos ambos hallazgos de
 forma independiente antes de tocar código.
 
