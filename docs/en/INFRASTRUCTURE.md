@@ -610,12 +610,12 @@ The nodeit daemon is an HTTP server that:
 
 Settlement is not triggered by an exposed HTTP endpoint on the nodeit, but by an internal loop in the daemon:
 
-1. The payer signs an EIP-712 `ReceiveWithAuthorization` authorization off-chain with their own wallet. The SDK sends it to the API, which queues it.
+1. The payer signs an EIP-712 `ReceiveWithAuthorization` authorization off-chain with their own wallet. The SDK sends it to the API, which **verifies the signature against the chain** — plain wallet, ERC-1271 or ERC-6492 — and only then queues it (ADR-006).
 2. The nodeit daemon polls that queue, claims a pending authorization, and submits `payIntentWithAuthorization` to `SettlementHub.sol`. **The nodeit pays the gas for this transaction.**
 3. `SettlementHub.sol` pulls the payer's USDC and splits it atomically on-chain (98.5% merchant, 1.05% nodeit, 0.45% treasury) and emits `IntentSettled`.
 4. An event watcher confirms the settlement by reading the `IntentSettled` event and the API marks the intent as `settled`.
 
-There is no HMAC authentication between the API and the nodeit: the nodeit consumes the API queue and settlement is validated on-chain, not by a request signature. The merchant never defines a payment address — the USDC moves from payer to merchant within the contract's atomic transaction.
+The nodeit authenticates to the API by **signing every request with its own key** (EIP-191), and the API checks in the `NodeRegistry` that the address is registered, active and sufficiently staked. There is no shared secret between them: there used to be one, and whoever held it could impersonate any nodeit. The merchant never defines a payment address — the USDC moves from payer to merchant within the contract's atomic transaction.
 
 ### 7.4 ERC-3009 payment model
 
@@ -630,6 +630,7 @@ This entirely eliminates the need for a unique payment address per intent and HD
 - The `nonce` **is the intent identifier** (`nonce == intentId`, ADR-004): it binds the signature to that specific intent, and the contract rejects any authorization that does not match. Without that binding, whoever submits the transaction could apply the payer's signature to an intent of their own (see §4.3).
 - The `nonce` is consumed on-chain on first use, which prevents authorization replay.
 - The payment is **gasless for the payer**: the nodeit submits the transaction and pays the gas.
+- **Smart wallets work.** A deployed one signs via ERC-1271 and USDC validates it at settlement. An undeployed one signs with ERC-6492 and the nodeit deploys it before settling — which is why it **only ever executes `createAccount` on the Coinbase Smart Wallet factories**. The signer chooses the factory and its calldata; without that restriction the nodeit would execute, from its own account, whatever call a third party wanted (F-4, ADR-006).
 
 ---
 
