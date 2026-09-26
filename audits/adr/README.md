@@ -13,6 +13,11 @@ ADRs are immutable: once Accepted, they are not edited. If a decision is reverse
 | # | Title | Status | Date | Supersedes |
 |---|---|---|---|---|
 | [001](./001-settlement-contract.md) | Settlement Contract for trustless on-chain payment splitting | 🟢 Accepted | 2026-05-14 | — |
+| [002](./002-fee-structure-and-gas-abstraction.md) | Fee structure recalibration + gas abstraction strategy | 🟢 Accepted | 2026-05-14 | — (refines ADR-001 §3.7) |
+| [003](./003-gas-abstraction-via-erc3009.md) | Gas abstraction via ERC-3009 | 🟢 Accepted | 2026-05-14 | ADR-002 §2.2 |
+| [004](./004-auth-binding-y-retirada-de-disputas.md) | Atadura de la autorización al intent, y retirada del sistema de disputas | 🟢 Aceptado | 2026-08-29 | ADR-001 §3.10; ADR-002 §2.1 (slashing) |
+| [005](./005-comision-al-1-5-por-ciento.md) | Comisión del protocolo del 1.0% al 1.5% | 🟢 Aceptado | 2026-08-31 | ADR-002 §2.1 (fee values) |
+| [006](./006-firmas-del-pagador-y-despliegue-erc6492.md) | Verificar todas las firmas del pagador, y ejecutar solo el despliegue que la política permite | 🟢 Aceptado | 2026-09-26 | — (off-chain only; fixes the ERC-6492 path of ADR-003) |
 
 ## Status legend
 
@@ -29,6 +34,9 @@ Auditors, investors, and future contributors need to understand **why** the prot
 - "Chesterton's Fence": removing a constraint someone added for a now-forgotten reason
 - "Audit waste": auditors asking "why did you do X?" when the answer is in code archaeology
 
-## Spanish summaries
+## Language
 
-Each ADR has a brief Spanish executive summary at the top. The full body is in English (for international auditors).
+ADR-001 to ADR-003 are written in English, with a brief Spanish executive summary
+at the top. From ADR-004 on, records are written in Spanish, the project's
+working language; the audit scope document summarizes their decisions in English
+for auditors.

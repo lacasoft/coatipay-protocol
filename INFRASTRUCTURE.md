@@ -611,12 +611,12 @@ El daemon del nodeit es un servidor HTTP que:
 
 El settlement no se dispara por un endpoint HTTP expuesto del nodeit, sino por un loop interno del daemon:
 
-1. El payer firma off-chain una autorización EIP-712 `ReceiveWithAuthorization` con su propia wallet. El SDK la envía a la API, que la encola.
+1. El payer firma off-chain una autorización EIP-712 `ReceiveWithAuthorization` con su propia wallet. El SDK la envía a la API, que **verifica la firma contra la cadena** —cartera normal, ERC-1271 o ERC-6492— y solo entonces la encola (ADR-006).
 2. El daemon del nodeit poletea esa cola, reclama una autorización pendiente y submitea `payIntentWithAuthorization` a `SettlementHub.sol`. **El nodeit paga el gas de esta transacción.**
 3. `SettlementHub.sol` jala el USDC del payer y lo splittea atómicamente on-chain (98.5% comercio, 1.05% nodeit, 0.45% treasury) y emite `IntentSettled`.
 4. Un event watcher confirma el settlement leyendo el evento `IntentSettled` y la API marca el intent como `settled`.
 
-No hay autenticación HMAC entre la API y el nodeit: el nodeit consume la cola de la API y el settlement se valida on-chain, no por una firma de request. El comercio nunca define una dirección de pago — el USDC va del payer al comercio dentro de la transacción atómica del contrato.
+El nodeit se autentica ante la API **firmando cada petición con su propia clave** (EIP-191), y la API comprueba en el `NodeRegistry` que esa dirección está registrada, activa y con stake suficiente. No hay un secreto compartido entre los dos: antes lo había, y cualquiera que lo tuviera podía hacerse pasar por cualquier nodeit. El comercio nunca define una dirección de pago — el USDC va del payer al comercio dentro de la transacción atómica del contrato.
 
 ### 7.4 Modelo de pago ERC-3009
 
@@ -631,6 +631,7 @@ Esto elimina por completo la necesidad de una dirección de pago única por inte
 - El `nonce` **es el identificador del intent** (`nonce == intentId`, ADR-004): ata la firma a ese intent concreto, y el contrato rechaza cualquier autorización que no cuadre. Sin esa atadura, quien envía la transacción podía aplicar la firma del pagador a un intent propio (ver §4.3).
 - El `nonce` se consume on-chain en el primer uso, lo que previene replay de la autorización.
 - El pago es **gasless para el payer**: el nodeit submitea la transacción y paga el gas.
+- **Funciona con monederos inteligentes.** Uno ya desplegado firma por ERC-1271 y USDC lo valida al liquidar. Uno sin desplegar firma con ERC-6492, y el nodeit lo despliega antes de liquidar; por eso **solo ejecuta `createAccount` en las fábricas de Coinbase Smart Wallet**. La fábrica y los datos los elige quien firma, y sin esa restricción el nodeit ejecutaría, desde su cuenta, la llamada que un tercero quisiera (F-4, ADR-006).
 
 ---
 
