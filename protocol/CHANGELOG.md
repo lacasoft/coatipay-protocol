@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.1.2 — 2026-09-28
+
+### Changed
+
+- **The error codes are now a catalog, and match what the API returns.**
+  `CoatiPayErrorCode` listed five codes the API no longer returns and lacked
+  about twenty it does — every signature-validation reason, `invalid_request`,
+  `not_found`, `idempotency_key_reused`… — so a TypeScript integration was
+  typed against errors it could never see.
+
+  `ERROR_CATALOG` is now the single source of truth: every code the API can
+  return, with the HTTP status it always comes with and a category.
+  `CoatiPayErrorCode` is derived from it. The API can only answer with a code
+  from this catalog, and each code has a reference page at
+  `https://coatipay.com/docs/errors/<code>`, checked against the catalog in CI.
+
+  Removed (never returned): `amount_too_small`, `amount_too_large`,
+  `chain_not_supported`, `intent_expired`, `no_nodes_available`. Code comparing
+  against them no longer type-checks, which is the point: that branch never
+  ran.
+
+  New: `rate_limited` (429). The API used to label a rate-limited request
+  `invalid_request`.
+
+- **`classifyError` classifies by category.** More codes map to their class:
+  `invalid_session` and `invalid_token` → `AuthError`; every validation reason
+  and `invalid_request` → `ValidationError`. A new `RateLimitError` for
+  `rate_limited`. Every class still extends `CoatiPaySDKError`, and a code this
+  version does not know (a newer API) gives a plain `CoatiPaySDKError` instead
+  of failing.
+
+### Added
+
+- A test suite (`npm test`), run in CI. The package had none.
+
 ## 0.1.1 — 2026-09-25
 
 ### Changed
