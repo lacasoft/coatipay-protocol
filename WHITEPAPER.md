@@ -171,8 +171,8 @@ const intent = await coatipay.paymentIntents.create({
 //    atómicamente on-chain: 98.5% al comercio, 1.05% al nodeit,
 //    0.45% al treasury. Emite el evento IntentSettled.
 
-// 5. Un event watcher confirma el evento IntentSettled on-chain
-//    y la API marca el intent como settled.
+// 5. La API lee ella misma el evento IntentSettled de la cadena
+//    y marca el intent como settled. El nodeit no informa de nada.
 
 // 6. Webhook al comercio: status = 'settled'
 ```

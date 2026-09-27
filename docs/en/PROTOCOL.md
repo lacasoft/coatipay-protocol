@@ -307,7 +307,7 @@ That is why the production recommendation is to deploy `intentSigner` as a multi
 
 **Gasless path (ERC-3009):** the payer signs a `ReceiveWithAuthorization` authorization off-chain (EIP-712); the node operator submits it via `payIntentWithAuthorization` and pays the gas. USDC enforces `msg.sender == to`, which eliminates on-chain front-running of the authorization. **The authorization is bound to its intent:** the contract requires `nonce == intentId` and reverts with `AuthorizationNotBoundToIntent` otherwise, so a signature is only usable for the intent whose id it carries as the nonce, and whoever submits the transaction cannot redirect the money. The nonce is burned on first use (USDC's native replay protection). The authorization travels as a raw `bytes` signature and settles via USDC's `receiveWithAuthorization(…, bytes)` overload (`SignatureChecker`), so it **works for both EOA wallets (ECDSA) and ERC-1271 smart wallets** (e.g. Coinbase Smart Wallet). **Counterfactual** accounts (undeployed smart wallet → ERC-6492 signature) can pay too, today only with **Coinbase Smart Wallet**: the nodeit deploys the wallet before settling, and only ever executes `createAccount` on the two Coinbase factories (v1 and v1.1); any other call is refused before anything is sent. Before queueing an authorization, the API verifies its signature against the chain for all three wallet types ([ADR-006](../../audits/adr/006-firmas-del-pagador-y-despliegue-erc6492.md)).
 
-**Events:** `IntentSettled` is the **source of truth** for settlement — the off-chain `SettlementEventWatcher` observes it and marks the payment intent `settled` + fires the webhook. The protocol never considers a payment settled until this on-chain event confirms.
+**Events:** `IntentSettled` is the **source of truth** for settlement. The API reads it **itself** from the chain — a reconciler with a durable cursor, a confirmation margin and reorg detection — marks the payment intent `settled` and fires the webhook. No node reports what settled: the API would not take its word ([ADR-007](../../audits/adr/007-liquidaciones-leidas-de-la-cadena.md)). The protocol never considers a payment settled until this on-chain event confirms.
 
 `SettlementHub` uses `nonReentrant` on every pay path and follows Checks-Effects-Interactions (state set before external transfers).
 
@@ -385,7 +385,7 @@ Settlement does not happen through an exposed HTTP endpoint on the nodeit. The f
 2. The SDK sends that authorization to the API, which queues it.
 3. The nodeit daemon polls the API queue, claims the authorization, and submits `payIntentWithAuthorization` to the `SettlementHub.sol` contract. The nodeit pays the gas for this transaction.
 4. `SettlementHub.sol` pulls the payer's USDC and splits it atomically on-chain (98.5% merchant, 1.05% nodeit, 0.45% treasury) and emits the `IntentSettled` event.
-5. An event watcher confirms the settlement by reading the on-chain `IntentSettled` event, and the API marks the intent as `settled` and fires the webhook.
+5. The API reads the `IntentSettled` event from the chain — with a confirmation margin — marks the intent as `settled` and fires the webhook. The node reports nothing.
 
 The nodeit never holds funds at any point: the USDC moves from payer to merchant within a single atomic contract transaction.
 

@@ -349,7 +349,7 @@ guarantees a single settlement per intent, independently of the intent's status.
 - `payIntentWithPermit` — EIP-2612
 - `payIntentWithAuthorization` — **ERC-3009 gasless** (the payer signs a `ReceiveWithAuthorization` authorization off-chain; the nodeit submits it and pays the gas) + `payIntentBatchWithAuthorization` for batch x402 (up to `MAX_BATCH_SIZE = 50`)
 
-`IntentSettled` is the **source of truth** for settlement — the off-chain event watcher observes it and marks the intent `settled`. `SettlementHub` uses `nonReentrant` on every pay path and follows Checks-Effects-Interactions.
+`IntentSettled` is the **source of truth** for settlement — the API reads it from the chain itself and marks the intent `settled`; no node reports it (ADR-007). `SettlementHub` uses `nonReentrant` on every pay path and follows Checks-Effects-Interactions.
 
 ### 4.4 Contract deployment order
 
@@ -613,7 +613,7 @@ Settlement is not triggered by an exposed HTTP endpoint on the nodeit, but by an
 1. The payer signs an EIP-712 `ReceiveWithAuthorization` authorization off-chain with their own wallet. The SDK sends it to the API, which **verifies the signature against the chain** — plain wallet, ERC-1271 or ERC-6492 — and only then queues it (ADR-006).
 2. The nodeit daemon polls that queue, claims a pending authorization, and submits `payIntentWithAuthorization` to `SettlementHub.sol`. **The nodeit pays the gas for this transaction.**
 3. `SettlementHub.sol` pulls the payer's USDC and splits it atomically on-chain (98.5% merchant, 1.05% nodeit, 0.45% treasury) and emits `IntentSettled`.
-4. An event watcher confirms the settlement by reading the `IntentSettled` event and the API marks the intent as `settled`.
+4. The API reads the `IntentSettled` event from the chain, with a confirmation margin, and marks the intent as `settled`. The node reports nothing: the API would not take its word (ADR-007).
 
 The nodeit authenticates to the API by **signing every request with its own key** (EIP-191), and the API checks in the `NodeRegistry` that the address is registered, active and sufficiently staked. There is no shared secret between them: there used to be one, and whoever held it could impersonate any nodeit. The merchant never defines a payment address — the USDC moves from payer to merchant within the contract's atomic transaction.
 
@@ -797,9 +797,10 @@ relay.x402.middleware({ price: 50000 }) // $0.05  → routed
   Emits the IntentSettled event
         │
         ▼
-[Event watcher confirms]      status: settled
-  Reads the IntentSettled event on-chain
-  API marks the intent as settled in PostgreSQL
+[The API reads the chain]     status: settled
+  Its reconciler reads IntentSettled (durable cursor,
+  confirmation margin, reorg detection)
+  Marks the intent as settled in PostgreSQL
   Queues webhook delivery
         │
         ▼

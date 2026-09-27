@@ -350,7 +350,7 @@ intent, con independencia del estado del intent.
 - `payIntentWithPermit` — EIP-2612
 - `payIntentWithAuthorization` — **ERC-3009 gasless** (el payer firma off-chain una autorización `ReceiveWithAuthorization`; el nodeit la submitea y paga el gas) + `payIntentBatchWithAuthorization` para batch x402 (hasta `MAX_BATCH_SIZE = 50`)
 
-`IntentSettled` es la **fuente de verdad** del settlement — el event watcher off-chain lo observa y marca el intent como `settled`. `SettlementHub` usa `nonReentrant` en cada pay path y sigue Checks-Effects-Interactions.
+`IntentSettled` es la **fuente de verdad** del settlement — la API lo lee de la cadena ella misma y marca el intent como `settled`; ningún nodeit lo reporta (ADR-007). `SettlementHub` usa `nonReentrant` en cada pay path y sigue Checks-Effects-Interactions.
 
 ### 4.4 Orden de despliegue de contratos
 
@@ -614,7 +614,7 @@ El settlement no se dispara por un endpoint HTTP expuesto del nodeit, sino por u
 1. El payer firma off-chain una autorización EIP-712 `ReceiveWithAuthorization` con su propia wallet. El SDK la envía a la API, que **verifica la firma contra la cadena** —cartera normal, ERC-1271 o ERC-6492— y solo entonces la encola (ADR-006).
 2. El daemon del nodeit poletea esa cola, reclama una autorización pendiente y submitea `payIntentWithAuthorization` a `SettlementHub.sol`. **El nodeit paga el gas de esta transacción.**
 3. `SettlementHub.sol` jala el USDC del payer y lo splittea atómicamente on-chain (98.5% comercio, 1.05% nodeit, 0.45% treasury) y emite `IntentSettled`.
-4. Un event watcher confirma el settlement leyendo el evento `IntentSettled` y la API marca el intent como `settled`.
+4. La API lee el evento `IntentSettled` de la cadena, con margen de confirmaciones, y marca el intent como `settled`. El nodeit no informa de nada: la API no aceptaría su palabra (ADR-007).
 
 El nodeit se autentica ante la API **firmando cada petición con su propia clave** (EIP-191), y la API comprueba en el `NodeRegistry` que esa dirección está registrada, activa y con stake suficiente. No hay un secreto compartido entre los dos: antes lo había, y cualquiera que lo tuviera podía hacerse pasar por cualquier nodeit. El comercio nunca define una dirección de pago — el USDC va del payer al comercio dentro de la transacción atómica del contrato.
 
@@ -798,9 +798,10 @@ relay.x402.middleware({ price: 50000 }) // $0.05  → enrutado
   Emite el evento IntentSettled
         │
         ▼
-[Event watcher confirma]      status: settled
-  Lee el evento IntentSettled on-chain
-  La API marca el intent como settled en PostgreSQL
+[La API lo lee de la cadena]  status: settled
+  Su reconciliador lee IntentSettled (cursor persistente,
+  margen de confirmaciones, detección de reorganizaciones)
+  Marca el intent como settled en PostgreSQL
   Encola la entrega del webhook
         │
         ▼
