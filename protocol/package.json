@@ -1,6 +1,6 @@
 {
   "name": "@lacasoft/coatipay-protocol",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Shared types, interfaces, constants, and chain helpers for the CoatiPay protocol",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -30,16 +30,18 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "clean": "rm -rf dist",
     "generate:fee-constants": "tsx scripts/generate-fee-constants.ts",
-    "check:fee-constants": "tsx scripts/generate-fee-constants.ts --check"
+    "check:fee-constants": "tsx scripts/generate-fee-constants.ts --check",
+    "test": "vitest run"
   },
   "dependencies": {
     "viem": "^2.55.5"
   },
   "devDependencies": {
     "tsx": "^4.23.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11"
   }
 }
