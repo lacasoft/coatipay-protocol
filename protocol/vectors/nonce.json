@@ -1,0 +1,26 @@
+{
+  "formato": 1,
+  "descripcion": "El nonce de la autorización ERC-3009 es el id on-chain del cobro: keccak256 de los bytes UTF-8 del id. Nunca del id leído como hexadecimal.",
+  "casos": [
+    {
+      "intent_id": "pi_V1StGXR8_Z5jdHi6B-myT",
+      "nonce": "0x5276333db799c2ddc032ecc93c3ad46c92af2d5143f1a7072cff448bebdd15f1"
+    },
+    {
+      "intent_id": "pi_a",
+      "nonce": "0x572cae8716755464b947556be17e9f74cf4f81c79a1feb864d6a1ff6a61ac30d"
+    },
+    {
+      "intent_id": "0xdeadbeef",
+      "nonce": "0x4f440a001006a49f24a7de53c04eca3f79aef851ac58e460c9630d044277c8b0"
+    },
+    {
+      "intent_id": "pi_ñandú",
+      "nonce": "0x71857a73be2aeafdf2ad6bc90136646d3cdbd977454f9b0801aa15e5c5f93718"
+    },
+    {
+      "intent_id": "",
+      "nonce": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+    }
+  ]
+}
