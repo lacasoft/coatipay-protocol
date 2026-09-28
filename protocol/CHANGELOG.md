@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.3 — 2026-09-28
+
+### Removed
+
+- **The `failed` status and the `payment_intent.failed` event.** Nothing ever
+  set an intent to `failed` or sent that event: a payment that does not go
+  through leaves the intent `created`, still payable until it expires. Code
+  that branches on either no longer type-checks — that branch never ran.
+
+### Added
+
+- **`payment_in_progress` (409, `conflict`)**: the intent cannot be cancelled
+  because a payment for it is being settled on-chain. It ends `settled`, or
+  cancellable again if that payment fails.
+- The lifecycle is documented on `PaymentIntentStatus`, and the delivery
+  guarantees on `WebhookEventType`: at least once, not ordered, and a
+  `payment_intent.settled` can follow an `expired` or `cancelled` one — the
+  chain has the last word.
+
 ## 0.1.2 — 2026-09-28
 
 ### Changed
