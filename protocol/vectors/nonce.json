@@ -1,6 +1,6 @@
 {
   "formato": 1,
-  "descripcion": "El nonce de la autorización ERC-3009 es el id on-chain del cobro: keccak256 de los bytes UTF-8 del id. Nunca del id leído como hexadecimal.",
+  "descripcion": "El nonce de la autorización ERC-3009 es el id on-chain del cobro: keccak256 de los bytes UTF-8 del id. Nunca del id leído como hexadecimal. Los ids de `rechazados` se rechazan con un error, sin hashearlos: su hash daría un nonce que parece válido y no es el de ningún cobro.",
   "casos": [
     {
       "intent_id": "pi_V1StGXR8_Z5jdHi6B-myT",
@@ -17,10 +17,20 @@
     {
       "intent_id": "pi_ñandú",
       "nonce": "0x71857a73be2aeafdf2ad6bc90136646d3cdbd977454f9b0801aa15e5c5f93718"
-    },
+    }
+  ],
+  "rechazados": [
     {
       "intent_id": "",
-      "nonce": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+      "motivo": "vacío"
+    },
+    {
+      "intent_id": "   ",
+      "motivo": "solo espacios"
+    },
+    {
+      "intent_id": "0xabababababababababababababababababababababababababababababababab",
+      "motivo": "ya es un id on-chain (bytes32): hashearlo otra vez daría otro nonce"
     }
   ]
 }
