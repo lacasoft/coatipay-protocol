@@ -32,6 +32,15 @@ jobs:
       - name: Fee constants in sync with SettlementHub.sol
         run: npm run check:fee-constants
 
+      - name: Shared SDK vectors in sync with their generator
+        run: npm run check:vectores
+
+      # The EIP-712 domain separator of each network, checked against the USDC
+      # actually deployed there. Fails on a mismatch; a public RPC that does not
+      # answer is only a warning.
+      - name: Vector domain separators match deployed USDC
+        run: npm run check:dominios
+
       - name: Typecheck
         run: npm run typecheck
 

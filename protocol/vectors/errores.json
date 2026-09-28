@@ -1,0 +1,185 @@
+{
+  "formato": 1,
+  "descripcion": "Cada código del catálogo con su estado HTTP, su categoría y la clase de error que lanza el SDK. Todas heredan de CoatiPaySDKError. Un código que el SDK no conoce (una API más nueva) lanza CoatiPaySDKError, nunca un fallo.",
+  "codigos": {
+    "invalid_api_key": {
+      "http": 401,
+      "category": "auth",
+      "clase": "AuthError"
+    },
+    "insufficient_permissions": {
+      "http": 403,
+      "category": "auth",
+      "clase": "AuthError"
+    },
+    "forbidden": {
+      "http": 403,
+      "category": "auth",
+      "clase": "AuthError"
+    },
+    "session_required": {
+      "http": 403,
+      "category": "auth",
+      "clase": "AuthError"
+    },
+    "invalid_session": {
+      "http": 401,
+      "category": "auth",
+      "clase": "AuthError"
+    },
+    "invalid_token": {
+      "http": 401,
+      "category": "auth",
+      "clase": "AuthError"
+    },
+    "invalid_request": {
+      "http": 400,
+      "category": "validation",
+      "clase": "ValidationError"
+    },
+    "amount_below_minimum": {
+      "http": 400,
+      "category": "validation",
+      "clase": "ValidationError"
+    },
+    "invalid_webhook_url": {
+      "http": 400,
+      "category": "validation",
+      "clase": "ValidationError"
+    },
+    "invalid_payment_payload": {
+      "http": 400,
+      "category": "validation",
+      "clase": "ValidationError"
+    },
+    "authorization_expired": {
+      "http": 400,
+      "category": "validation",
+      "clase": "ValidationError"
+    },
+    "authorization_not_yet_valid": {
+      "http": 400,
+      "category": "validation",
+      "clase": "ValidationError"
+    },
+    "authorization_not_bound_to_intent": {
+      "http": 400,
+      "category": "validation",
+      "clase": "ValidationError"
+    },
+    "invalid_signer": {
+      "http": 400,
+      "category": "validation",
+      "clase": "ValidationError"
+    },
+    "unsupported_chain": {
+      "http": 400,
+      "category": "validation",
+      "clase": "ValidationError"
+    },
+    "unsupported_signature": {
+      "http": 400,
+      "category": "validation",
+      "clase": "ValidationError"
+    },
+    "intent_not_found": {
+      "http": 404,
+      "category": "not_found",
+      "clase": "CoatiPaySDKError"
+    },
+    "not_found": {
+      "http": 404,
+      "category": "not_found",
+      "clase": "CoatiPaySDKError"
+    },
+    "node_not_registered": {
+      "http": 404,
+      "category": "not_found",
+      "clase": "CoatiPaySDKError"
+    },
+    "authorization_not_claimed": {
+      "http": 404,
+      "category": "not_found",
+      "clase": "CoatiPaySDKError"
+    },
+    "intent_already_settled": {
+      "http": 409,
+      "category": "conflict",
+      "clase": "CoatiPaySDKError"
+    },
+    "payment_in_progress": {
+      "http": 409,
+      "category": "conflict",
+      "clase": "CoatiPaySDKError"
+    },
+    "intent_not_payable": {
+      "http": 400,
+      "category": "conflict",
+      "clase": "CoatiPaySDKError"
+    },
+    "nonce_already_used": {
+      "http": 409,
+      "category": "conflict",
+      "clase": "CoatiPaySDKError"
+    },
+    "idempotency_key_reused": {
+      "http": 409,
+      "category": "conflict",
+      "clase": "CoatiPaySDKError"
+    },
+    "webhook_endpoint_deleted": {
+      "http": 409,
+      "category": "conflict",
+      "clase": "CoatiPaySDKError"
+    },
+    "email_taken": {
+      "http": 409,
+      "category": "conflict",
+      "clase": "CoatiPaySDKError"
+    },
+    "already_reviewed": {
+      "http": 409,
+      "category": "conflict",
+      "clase": "CoatiPaySDKError"
+    },
+    "chain_verification_failed": {
+      "http": 402,
+      "category": "payment",
+      "clase": "PaymentError"
+    },
+    "insufficient_payment": {
+      "http": 402,
+      "category": "payment",
+      "clase": "PaymentError"
+    },
+    "x402_replay": {
+      "http": 409,
+      "category": "payment",
+      "clase": "PaymentError"
+    },
+    "node_unavailable": {
+      "http": 502,
+      "category": "routing",
+      "clase": "RoutingError"
+    },
+    "rate_limited": {
+      "http": 429,
+      "category": "rate_limit",
+      "clase": "RateLimitError"
+    },
+    "signature_unverifiable": {
+      "http": 503,
+      "category": "unavailable",
+      "clase": "CoatiPaySDKError"
+    },
+    "internal_error": {
+      "http": 500,
+      "category": "internal",
+      "clase": "CoatiPaySDKError"
+    }
+  },
+  "desconocido": {
+    "code": "codigo_que_no_existe",
+    "clase": "CoatiPaySDKError"
+  }
+}

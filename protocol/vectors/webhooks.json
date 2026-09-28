@@ -1,0 +1,196 @@
+{
+  "formato": 1,
+  "descripcion": "Verificación de la cabecera X-Signature (t=<segundos>,v1=<hex>): partes separadas por comas (se ignoran los espacios alrededor), cada una clave=valor; un solo t, solo dígitos; al menos un v1; otras claves se ignoran. Vale si |ahora − t| ≤ tolerancia (300 s por defecto, límite incluido) y el HMAC-SHA256 del secreto sobre \"<t>.<cuerpo>\", en hex minúsculas, coincide con CUALQUIER v1. Orden: formato, tolerancia, firma. Motivos: malformed_header, timestamp_out_of_tolerance, no_matching_signature.",
+  "secreto": "whsec_vector_de_prueba",
+  "ahora": 1790000000,
+  "tolerancia_por_defecto": 300,
+  "cuerpo": "{\"id\":\"evt_0123456789abcdef0123456789abcdef\",\"type\":\"payment_intent.settled\",\"created\":1789999995,\"data\":{\"id\":\"pi_V1StGXR8_Z5jdHi6B-myT\",\"merchant_id\":\"mid_ejemplo\",\"amount\":1500000,\"currency\":\"usdc\",\"chain\":\"base\",\"status\":\"settled\",\"node_operator\":\"0x00000000000000000000000000000000000000aa\",\"payer_address\":\"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\",\"tx_hash\":\"0xabababababababababababababababababababababababababababababababab\",\"fee_amount\":22500,\"metadata\":{\"order_id\":\"o_1\"},\"created_at\":1789999400,\"expires_at\":1790001200,\"settled_at\":1789999995}}",
+  "evento": {
+    "id": "evt_0123456789abcdef0123456789abcdef",
+    "type": "payment_intent.settled",
+    "created": 1789999995,
+    "data": {
+      "id": "pi_V1StGXR8_Z5jdHi6B-myT",
+      "merchant_id": "mid_ejemplo",
+      "amount": 1500000,
+      "currency": "usdc",
+      "chain": "base",
+      "status": "settled",
+      "node_operator": "0x00000000000000000000000000000000000000aa",
+      "payer_address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      "tx_hash": "0xabababababababababababababababababababababababababababababababab",
+      "fee_amount": 22500,
+      "metadata": {
+        "order_id": "o_1"
+      },
+      "created_at": 1789999400,
+      "expires_at": 1790001200,
+      "settled_at": 1789999995
+    }
+  },
+  "casos": [
+    {
+      "nombre": "valida",
+      "cabecera": "t=1790000000,v1=f12ac80e964391923df8386d095ff1a39be0d802ddbc2c9ee62ea0cc7d82d213",
+      "esperado": {
+        "valida": true
+      }
+    },
+    {
+      "nombre": "en_el_limite_de_la_tolerancia",
+      "cabecera": "t=1789999700,v1=a9688bedd3a505118de6f3132c1717769727aac5f8d02b6cf32e36eb322ca1c2",
+      "esperado": {
+        "valida": true
+      }
+    },
+    {
+      "nombre": "fuera_de_tolerancia",
+      "cabecera": "t=1789999699,v1=11f6959bb0fa7b4210cf20e74bb18950105292f250f554a6f86b8a3a55bedd86",
+      "esperado": {
+        "valida": false,
+        "motivo": "timestamp_out_of_tolerance"
+      }
+    },
+    {
+      "nombre": "del_futuro_fuera_de_tolerancia",
+      "cabecera": "t=1790000301,v1=a77c4a3358392569264a8eac8896423309bf30cbd0af9dc429998c20d7e7a9ad",
+      "esperado": {
+        "valida": false,
+        "motivo": "timestamp_out_of_tolerance"
+      }
+    },
+    {
+      "nombre": "tolerancia_propia",
+      "cabecera": "t=1789999400,v1=afe78214d232e6372400e9d166e22b74e69e863d5a21087eaee4dc023d8df5f7",
+      "tolerancia": 900,
+      "esperado": {
+        "valida": true
+      }
+    },
+    {
+      "nombre": "cuerpo_alterado",
+      "cabecera": "t=1790000000,v1=f12ac80e964391923df8386d095ff1a39be0d802ddbc2c9ee62ea0cc7d82d213",
+      "cuerpo": "{\"id\":\"evt_0123456789abcdef0123456789abcdef\",\"type\":\"payment_intent.settled\",\"created\":1789999995,\"data\":{\"id\":\"pi_V1StGXR8_Z5jdHi6B-myT\",\"merchant_id\":\"mid_ejemplo\",\"amount\":1500001,\"currency\":\"usdc\",\"chain\":\"base\",\"status\":\"settled\",\"node_operator\":\"0x00000000000000000000000000000000000000aa\",\"payer_address\":\"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\",\"tx_hash\":\"0xabababababababababababababababababababababababababababababababab\",\"fee_amount\":22500,\"metadata\":{\"order_id\":\"o_1\"},\"created_at\":1789999400,\"expires_at\":1790001200,\"settled_at\":1789999995}}",
+      "esperado": {
+        "valida": false,
+        "motivo": "no_matching_signature"
+      }
+    },
+    {
+      "nombre": "otro_secreto",
+      "cabecera": "t=1790000000,v1=24392fad5645d2deedf3dc746f62eaa5fbfe0b8e8d6d6d52e256706e7cc90673",
+      "esperado": {
+        "valida": false,
+        "motivo": "no_matching_signature"
+      }
+    },
+    {
+      "nombre": "rotacion_la_buena_segunda",
+      "cabecera": "t=1790000000,v1=24392fad5645d2deedf3dc746f62eaa5fbfe0b8e8d6d6d52e256706e7cc90673,v1=f12ac80e964391923df8386d095ff1a39be0d802ddbc2c9ee62ea0cc7d82d213",
+      "esperado": {
+        "valida": true
+      }
+    },
+    {
+      "nombre": "rotacion_la_buena_primera",
+      "cabecera": "t=1790000000,v1=f12ac80e964391923df8386d095ff1a39be0d802ddbc2c9ee62ea0cc7d82d213,v1=24392fad5645d2deedf3dc746f62eaa5fbfe0b8e8d6d6d52e256706e7cc90673",
+      "esperado": {
+        "valida": true
+      }
+    },
+    {
+      "nombre": "claves_desconocidas_se_ignoran",
+      "cabecera": "t=1790000000,v0=abc,v1=f12ac80e964391923df8386d095ff1a39be0d802ddbc2c9ee62ea0cc7d82d213,v2=def",
+      "esperado": {
+        "valida": true
+      }
+    },
+    {
+      "nombre": "espacios_tras_las_comas",
+      "cabecera": "t=1790000000, v1=f12ac80e964391923df8386d095ff1a39be0d802ddbc2c9ee62ea0cc7d82d213",
+      "esperado": {
+        "valida": true
+      }
+    },
+    {
+      "nombre": "firma_en_mayusculas",
+      "cabecera": "t=1790000000,v1=F12AC80E964391923DF8386D095FF1A39BE0D802DDBC2C9EE62EA0CC7D82D213",
+      "esperado": {
+        "valida": false,
+        "motivo": "no_matching_signature"
+      }
+    },
+    {
+      "nombre": "sin_t",
+      "cabecera": "v1=f12ac80e964391923df8386d095ff1a39be0d802ddbc2c9ee62ea0cc7d82d213",
+      "esperado": {
+        "valida": false,
+        "motivo": "malformed_header"
+      }
+    },
+    {
+      "nombre": "sin_v1",
+      "cabecera": "t=1790000000",
+      "esperado": {
+        "valida": false,
+        "motivo": "malformed_header"
+      }
+    },
+    {
+      "nombre": "parte_sin_igual",
+      "cabecera": "t=1790000000,v1",
+      "esperado": {
+        "valida": false,
+        "motivo": "malformed_header"
+      }
+    },
+    {
+      "nombre": "clave_vacia",
+      "cabecera": "t=1790000000,=f12ac80e964391923df8386d095ff1a39be0d802ddbc2c9ee62ea0cc7d82d213",
+      "esperado": {
+        "valida": false,
+        "motivo": "malformed_header"
+      }
+    },
+    {
+      "nombre": "t_con_exponente",
+      "cabecera": "t=1e9,v1=7c648ccba10e7f5c8307a96d74888cf806d6e544135fb41e02bb8eb270177c0d",
+      "esperado": {
+        "valida": false,
+        "motivo": "malformed_header"
+      }
+    },
+    {
+      "nombre": "t_decimal",
+      "cabecera": "t=1790000000.5,v1=1b45491cbdfda26477b57265e9b86e1cf47b8963589f664c6b66f2923c17f990",
+      "esperado": {
+        "valida": false,
+        "motivo": "malformed_header"
+      }
+    },
+    {
+      "nombre": "t_negativo",
+      "cabecera": "t=-1790000000,v1=244cfbc283ecb8c11d6bf927230448f87374793a618e5e356e9f6b40df12905d",
+      "esperado": {
+        "valida": false,
+        "motivo": "malformed_header"
+      }
+    },
+    {
+      "nombre": "t_repetido",
+      "cabecera": "t=1790000000,t=1790000000,v1=f12ac80e964391923df8386d095ff1a39be0d802ddbc2c9ee62ea0cc7d82d213",
+      "esperado": {
+        "valida": false,
+        "motivo": "malformed_header"
+      }
+    },
+    {
+      "nombre": "cabecera_vacia",
+      "cabecera": "",
+      "esperado": {
+        "valida": false,
+        "motivo": "malformed_header"
+      }
+    }
+  ]
+}

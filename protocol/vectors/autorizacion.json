@@ -1,0 +1,117 @@
+{
+  "formato": 1,
+  "descripcion": "Autorizaciones ERC-3009 ReceiveWithAuthorization. Dominio EIP-712: el del USDC de la red (name \"USDC\" en Base Sepolia y \"USD Coin\" en Base, version \"2\"). La clave de prueba es pública (cuenta 0 de Anvil): la firma es determinista (RFC 6979) y con s bajo.",
+  "casos": [
+    {
+      "entrada": {
+        "chain": "base-sepolia",
+        "intent_id": "pi_V1StGXR8_Z5jdHi6B-myT",
+        "amount": "1500000",
+        "payer_private_key": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        "settlement_hub": "0x00000000000000000000000000000000000c0a71",
+        "valid_after": "0",
+        "valid_before": "1790000000"
+      },
+      "esperado": {
+        "domain": {
+          "name": "USDC",
+          "version": "2",
+          "chainId": 84532,
+          "verifyingContract": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+        },
+        "domain_separator": "0x71f17a3b2ff373b803d70a5a07c046c1a2bc8e89c09ef722fcb047abe94c9818",
+        "message": {
+          "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+          "to": "0x00000000000000000000000000000000000c0a71",
+          "value": "1500000",
+          "validAfter": "0",
+          "validBefore": "1790000000",
+          "nonce": "0x5276333db799c2ddc032ecc93c3ad46c92af2d5143f1a7072cff448bebdd15f1"
+        },
+        "digest": "0x6dc0a40a5c3354baf58bc3bebf94808e44dca5fdf065c66bd8a1c5e0416f5c5c",
+        "signature": "0x011da8008b7baac5c3d54634ad209769f00b57eb05cfe01238e8c14f78e2f5ae1d836341309f6ae66eb84fe460131c1a4829858d4274631b5fbe28ce301e6c341b",
+        "api_body": {
+          "payer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+          "valid_after": "0",
+          "valid_before": "1790000000",
+          "nonce": "0x5276333db799c2ddc032ecc93c3ad46c92af2d5143f1a7072cff448bebdd15f1",
+          "signature": "0x011da8008b7baac5c3d54634ad209769f00b57eb05cfe01238e8c14f78e2f5ae1d836341309f6ae66eb84fe460131c1a4829858d4274631b5fbe28ce301e6c341b"
+        }
+      }
+    },
+    {
+      "entrada": {
+        "chain": "base",
+        "intent_id": "pi_V1StGXR8_Z5jdHi6B-myT",
+        "amount": "1500000",
+        "payer_private_key": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        "settlement_hub": "0x00000000000000000000000000000000000c0a71",
+        "valid_after": "0",
+        "valid_before": "1790000000"
+      },
+      "esperado": {
+        "domain": {
+          "name": "USD Coin",
+          "version": "2",
+          "chainId": 8453,
+          "verifyingContract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        },
+        "domain_separator": "0x02fa7265e7c5d81118673727957699e4d68f74cd74b7db77da710fe8a2c7834f",
+        "message": {
+          "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+          "to": "0x00000000000000000000000000000000000c0a71",
+          "value": "1500000",
+          "validAfter": "0",
+          "validBefore": "1790000000",
+          "nonce": "0x5276333db799c2ddc032ecc93c3ad46c92af2d5143f1a7072cff448bebdd15f1"
+        },
+        "digest": "0xf7679940c0510c92857f2e590bfd3fbd0a4ed0ffbabeb975957daa150d599841",
+        "signature": "0x66774bc0644ebbb69debb2fd7f9c00c70fe34bec2e5f2f722c28b9edf1ec36b667d9f1a5ce09b7f57dc445ec2ef083684379606167ee09131d32a0df3110092b1b",
+        "api_body": {
+          "payer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+          "valid_after": "0",
+          "valid_before": "1790000000",
+          "nonce": "0x5276333db799c2ddc032ecc93c3ad46c92af2d5143f1a7072cff448bebdd15f1",
+          "signature": "0x66774bc0644ebbb69debb2fd7f9c00c70fe34bec2e5f2f722c28b9edf1ec36b667d9f1a5ce09b7f57dc445ec2ef083684379606167ee09131d32a0df3110092b1b"
+        }
+      }
+    },
+    {
+      "entrada": {
+        "chain": "base-sepolia",
+        "intent_id": "pi_a",
+        "amount": "300000",
+        "payer_private_key": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        "settlement_hub": "0x00000000000000000000000000000000000c0a71",
+        "valid_after": "0",
+        "valid_before": "1790000000"
+      },
+      "esperado": {
+        "domain": {
+          "name": "USDC",
+          "version": "2",
+          "chainId": 84532,
+          "verifyingContract": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+        },
+        "domain_separator": "0x71f17a3b2ff373b803d70a5a07c046c1a2bc8e89c09ef722fcb047abe94c9818",
+        "message": {
+          "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+          "to": "0x00000000000000000000000000000000000c0a71",
+          "value": "300000",
+          "validAfter": "0",
+          "validBefore": "1790000000",
+          "nonce": "0x572cae8716755464b947556be17e9f74cf4f81c79a1feb864d6a1ff6a61ac30d"
+        },
+        "digest": "0xe828ba0243bb9c5e50ab15177fcb98f941f0209f205d9c62ab89df71a900ab84",
+        "signature": "0x102a7271b13f24f26b82ee72d8d950c96a2a5d61a449169dbda9b40df2bec4c67ff977e99c8d517ac31e9abf026cf486e34c3a08498731b3e5cb2cfa976129eb1b",
+        "api_body": {
+          "payer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+          "valid_after": "0",
+          "valid_before": "1790000000",
+          "nonce": "0x572cae8716755464b947556be17e9f74cf4f81c79a1feb864d6a1ff6a61ac30d",
+          "signature": "0x102a7271b13f24f26b82ee72d8d950c96a2a5d61a449169dbda9b40df2bec4c67ff977e99c8d517ac31e9abf026cf486e34c3a08498731b3e5cb2cfa976129eb1b"
+        }
+      }
+    }
+  ]
+}
