@@ -324,10 +324,15 @@ created ──► settled
 
 created ──► cancelled
 created ──► expired
-created ──► failed
+
+(exceptional) cancelled | expired ──► settled
 ```
 
-`settled` is the only successful terminal state, and it is final: once `IntentSettled` is emitted there is no later transition, because the protocol has no reversal and no adjudication (see ADR-004). Additional terminal states: `cancelled` (cancelled by the merchant), `expired` (passed `expires_at`), `failed` (the on-chain settlement did not complete).
+`settled` is the only successful terminal state, and it is final: once `IntentSettled` is emitted there is no later transition, because the protocol has no reversal and no adjudication (see ADR-004). Additional terminal states: `cancelled` (cancelled by the merchant) and `expired` (passed `expires_at`), both only with no payment on its way.
+
+**There is no `failed` state.** A payment that does not go through (invalid signature, insufficient balance, expired authorization) leaves the intent `created`, still payable until it expires. Today, if the authorization was rejected at settlement, the same payer cannot sign that intent again (409 `nonce_already_used`); another wallet can.
+
+**The chain has the last word.** If a payment was already on its way to the chain when the intent expired or was cancelled, the reconciler applies the `IntentSettled` and the intent becomes `settled`. The API avoids it where it can — it does not cancel or expire an intent with an authorization a nodeit has already claimed — but cannot rule it out: a claim released as stuck keeps valid signatures and can settle late.
 
 ### 5.2 Payment Intent Object
 
@@ -354,11 +359,11 @@ interface PaymentIntent {
 
 **created → settled** — the on-chain `IntentSettled` event emitted by `SettlementHub.sol` is confirmed. The payer signed an ERC-3009 authorization, the nodeit daemon submitted it to the contract, and the contract pulled the payer's USDC and split it atomically (98.5% to the merchant, 1.05% to the nodeit, 0.45% to the treasury). The `payment_intent.settled` webhook fires.
 
-**created → expired** — the `expires_at` timestamp is reached without the intent reaching `settled`.
+**created → expired** — the `expires_at` timestamp is reached without the intent reaching `settled` and with no authorization claimed by a nodeit. Authorizations still queued are discarded: the hub refuses to settle from `expiresAt` on (`IntentExpired`). Fires `payment_intent.expired`.
 
-**created → cancelled** — the merchant cancels the intent before settlement.
+**created → cancelled** — the merchant cancels the intent before settlement. Queued authorizations are discarded; if a nodeit has already claimed one, the intent is not cancelled (409 `payment_in_progress`): that payment can still settle. Fires `payment_intent.cancelled`.
 
-**created → failed** — the on-chain settlement did not complete (e.g., the authorization was rejected by the contract).
+**cancelled | expired → settled** (exceptional) — the `IntentSettled` of a payment that was already on its way to the chain. Fires `payment_intent.settled`.
 
 **There are no transitions out of `settled`.** Settlement is atomic and final: the contract splits the funds in the same transaction that receives them, and there is no on-chain or API path to reverse it.
 
@@ -555,13 +560,18 @@ URL prefix: `/v1/`. New API version will not be introduced before protocol v1.0.
 
 ## Appendix A — Webhook Events
 
+One event per status change of the intent (§5). There is no failed-payment event: the `failed` state does not exist.
+
 | Event | Triggered When |
 |---|---|
 | `payment_intent.created` | Intent is first created |
 | `payment_intent.settled` | The on-chain `IntentSettled` event was confirmed |
-| `payment_intent.failed` | On-chain settlement failed |
-| `payment_intent.expired` | TTL reached without payment |
-| `payment_intent.cancelled` | Cancelled by the merchant before settlement |
+| `payment_intent.expired` | TTL reached with no payment on its way |
+| `payment_intent.cancelled` | Cancelled by the merchant, with no payment on its way |
+
+- **At least once, not ordered.** Every event comes from an outbox written in the same transaction as the status change. Its `id` is stable: deduplicate by it, and trust `data.status` and `created` (when it happened) over the order of arrival.
+- `data` is the intent as it was at that moment.
+- A `payment_intent.settled` can arrive after `expired` or `cancelled` (§5.1): the payment reached the merchant.
 
 ---
 
