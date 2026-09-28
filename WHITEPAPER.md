@@ -542,7 +542,7 @@ SCORE_CACHE_TTL          = 60 segundos
 
 ## Apéndice C — Glosario
 
-**Payment Intent** — La unidad fundamental de CoatiPay. Representa una intención de pago con un ciclo de vida definido: `created → settled`. Estados terminales adicionales: `cancelled`, `expired`, `failed`.
+**Payment Intent** — La unidad fundamental de CoatiPay. Representa una intención de pago con un ciclo de vida definido: `created → settled`. Estados terminales adicionales: `cancelled` y `expired`. No hay estado `failed`: un pago que no pasa deja el intent en `created`.
 
 **Nodo** — Concepto del protocolo: servidor registrado on-chain que facilita el enrutamiento de pagos. Observa transacciones y confirma settlements. Nunca custodia fondos. Ver `PROTOCOL.md` para la especificación técnica.
 

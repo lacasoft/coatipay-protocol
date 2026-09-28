@@ -544,6 +544,8 @@ El rate limiting se aplica globalmente por API key vía Redis:
 
 ### 6.5 Entrega de webhooks
 
+Cada cambio de estado deja su evento en una bandeja de salida (`webhook_outbox`), en la misma transacción que el cambio; el worker de webhooks la vacía hacia la cola de entrega. Si Redis o la API fallan a mitad, el evento sigue en la bandeja: la entrega es al menos una vez.
+
 Los webhooks se entregan con reintento de backoff exponencial:
 
 ```
@@ -553,8 +555,10 @@ Attempt 3:   5 minutes
 Attempt 4:   30 minutes
 Attempt 5:   2 hours
 Attempt 6:   12 hours
-After 6 failures: marked as failed, no more retries
+After 6 failures: dead-letter queue (DLQ)
 ```
+
+Lo que agota los reintentos queda en el DLQ, y el comercio lo ve y lo reenvía: `GET /v1/webhooks/dead_letters` y `POST /v1/webhooks/dead_letters/:id/replay`.
 
 Los payloads de webhook se firman con HMAC-SHA256:
 ```
@@ -823,16 +827,21 @@ created → settled
 
 created → expired
   Triggered: se alcanza el timestamp expires_at
-  Condition: el intent no llegó a settled
+  Condition: el intent no llegó a settled y ningún nodeit reclamó una autorización
+  Effect:    las autorizaciones en cola se descartan (el hub rechaza liquidar desde expiresAt)
 
 created → cancelled
   Triggered: el comercio cancela el intent
-  Condition: el intent aún no está settled
+  Condition: el intent aún no está settled y ningún nodeit reclamó una autorización
+             (si la reclamó: 409 payment_in_progress, no se cancela)
+  Effect:    las autorizaciones en cola se descartan
 
-created → failed
-  Triggered: el settlement on-chain no se completó
-  Condition: la autorización ERC-3009 fue rechazada por el contrato
+cancelled | expired → settled   (excepcional: la cadena manda)
+  Triggered: el evento on-chain IntentSettled se confirma
+  Condition: el pago ya iba camino de la cadena (un reclamo liberado por atascado)
 ```
+
+No hay estado `failed`: un pago que no pasa deja el intent en `created`.
 
 **Estas transiciones son exhaustivas y exclusivas.** No existe transición fuera de esta tabla. Cualquier código que intente una transición no listada debe ser tratado como un bug.
 
@@ -1044,7 +1053,7 @@ Métricas a rastrear:
 - `avg_settlement_ms` — tiempo promedio rolling de settlement
 - `intents_claimed` — autorizaciones ERC-3009 reclamadas de la cola de la API
 - `intents_settled` — intents confirmados exitosamente
-- `intents_failed` — intents que no pudieron ser liquidados
+- `authorizations_rejected` — autorizaciones que no se pudieron liquidar (el intent sigue `created`)
 - `stake_balance` — stake actual de USDC (alertar si se acerca al mínimo)
 
 Alertas recomendadas:
@@ -1097,8 +1106,9 @@ app.post('/webhooks/coatipay', express.raw({ type: 'application/json' }), (req, 
     case 'payment_intent.settled':
       await fulfillOrder(event.data.metadata.orderId)
       break
-    case 'payment_intent.failed':
-      await notifyCustomer(event.data.metadata.orderId, 'payment_failed')
+    case 'payment_intent.expired':
+    case 'payment_intent.cancelled':
+      await releaseStock(event.data.metadata.orderId)
       break
   }
 
