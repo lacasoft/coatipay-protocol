@@ -6,6 +6,7 @@ import {
   classifyError,
   ERROR_CATALOG,
   type ErrorCategory,
+  NetworkError,
   PaymentError,
   RateLimitError,
   RoutingError,
@@ -91,5 +92,24 @@ describe('classifyError', () => {
     const e = classifyError(error('some_future_code'))
     expect(e).toBeInstanceOf(CoatiPaySDKError)
     expect(e.code).toBe('some_future_code')
+  })
+})
+
+describe('NetworkError', () => {
+  it('is a CoatiPaySDKError with code network_error, so one catch covers every call', () => {
+    const causa = new TypeError('fetch failed')
+    const e = new NetworkError('Network error', causa)
+    expect(e).toBeInstanceOf(CoatiPaySDKError)
+    expect(e).toBeInstanceOf(Error)
+    expect(e.name).toBe('NetworkError')
+    expect(e.code).toBe('network_error')
+    expect(e.param).toBeNull()
+    expect(e.doc_url).toBe('https://coatipay.com/docs/errors/network_error')
+    expect(e.cause).toBe(causa)
+    expect(e.status).toBeNull()
+  })
+
+  it('carries the HTTP status of a response that is not a CoatiPay error', () => {
+    expect(new NetworkError('Bad gateway', undefined, 502).status).toBe(502)
   })
 })

@@ -21,7 +21,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { domainSeparator, hashTypedData, type Hex, keccak256, toHex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { ERROR_CATALOG, type ErrorCategory } from '../src/errors'
+import { docUrl, ERROR_CATALOG, type ErrorCategory, type ErrorDefinition } from '../src/errors'
 import {
   RECEIVE_WITH_AUTHORIZATION_TYPES,
   type SupportedChain,
@@ -270,7 +270,97 @@ const CLASES: Record<ErrorCategory, string> = {
   internal: 'CoatiPaySDKError',
 }
 
+type Respuesta = { status: number; cuerpo: string } | null
+
+type Interpretacion =
+  | { ok: true }
+  | { ok: false; clase: string; code: string; status: number | null; param: string | null; doc_url: string }
+
+const esObjeto = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/// Cómo interpreta un SDK la respuesta HTTP de la API, o su ausencia
+/// (implementación de referencia; de aquí salen los casos esperados):
+///   1. Sin respuesta (red, DNS, timeout) → NetworkError, status null.
+///   2. Un cuerpo que no es JSON → NetworkError con el status, sea cual sea
+///      (un 502 en HTML del proxy, un 200 que no es JSON).
+///   3. 2xx con JSON → éxito.
+///   4. Un error de CoatiPay es un objeto JSON cuyo `error` es un objeto con
+///      `code` de texto no vacío → la clase de su categoría (la base si el SDK
+///      no conoce el código); `param` null si no viene; sin `doc_url`, la
+///      página del código.
+///   5. Cualquier otro JSON de error (sin `error`, o el `error` de texto que
+///      pone Fastify por defecto) no es de CoatiPay → NetworkError con el status.
+/// NetworkError tiene code `network_error` y hereda de CoatiPaySDKError.
+export function interpretarRespuesta(r: Respuesta): Interpretacion {
+  const deRed = (status: number | null): Interpretacion => ({
+    ok: false,
+    clase: 'NetworkError',
+    code: 'network_error',
+    status,
+    param: null,
+    doc_url: docUrl('network_error'),
+  })
+  if (r === null) return deRed(null)
+  let cuerpo: unknown
+  try {
+    cuerpo = JSON.parse(r.cuerpo)
+  } catch {
+    return deRed(r.status)
+  }
+  if (r.status >= 200 && r.status < 300) return { ok: true }
+  const error = esObjeto(cuerpo) ? cuerpo.error : undefined
+  if (!esObjeto(error) || typeof error.code !== 'string' || error.code === '') return deRed(r.status)
+  const definicion = (ERROR_CATALOG as Record<string, ErrorDefinition>)[error.code]
+  return {
+    ok: false,
+    clase: definicion ? CLASES[definicion.category] : 'CoatiPaySDKError',
+    code: error.code,
+    status: r.status,
+    param: typeof error.param === 'string' ? error.param : null,
+    doc_url: typeof error.doc_url === 'string' ? error.doc_url : docUrl(error.code),
+  }
+}
+
 function vectoresErrores() {
+  const deLaApi = (code: string, extra: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      error: { code, message: 'Mensaje de la API', param: null, doc_url: docUrl(code), ...extra },
+    })
+
+  const casos: { nombre: string; respuesta: Respuesta }[] = [
+    { nombre: 'exito', respuesta: { status: 200, cuerpo: '{"id":"pi_1","status":"created"}' } },
+    { nombre: 'error_de_la_api', respuesta: { status: 409, cuerpo: deLaApi('payment_in_progress') } },
+    { nombre: 'error_de_la_api_con_su_clase', respuesta: { status: 401, cuerpo: deLaApi('invalid_api_key') } },
+    {
+      nombre: 'error_con_param',
+      respuesta: { status: 400, cuerpo: deLaApi('amount_below_minimum', { param: 'amount' }) },
+    },
+    {
+      nombre: 'error_sin_doc_url',
+      respuesta: {
+        status: 400,
+        cuerpo: JSON.stringify({ error: { code: 'invalid_request', message: 'm', param: 'amount' } }),
+      },
+    },
+    { nombre: 'codigo_desconocido', respuesta: { status: 418, cuerpo: deLaApi('codigo_de_una_api_mas_nueva') } },
+    { nombre: 'sin_respuesta', respuesta: null },
+    { nombre: 'proxy_502_en_html', respuesta: { status: 502, cuerpo: '<html><body>502 Bad Gateway</body></html>' } },
+    { nombre: 'proxy_503_vacio', respuesta: { status: 503, cuerpo: '' } },
+    {
+      nombre: 'error_por_defecto_de_fastify',
+      respuesta: {
+        status: 500,
+        cuerpo: '{"statusCode":500,"error":"Internal Server Error","message":"boom"}',
+      },
+    },
+    { nombre: 'json_sin_error', respuesta: { status: 500, cuerpo: '{"message":"boom"}' } },
+    { nombre: 'error_sin_code', respuesta: { status: 400, cuerpo: '{"error":{"message":"m"}}' } },
+    { nombre: 'error_con_code_vacio', respuesta: { status: 400, cuerpo: '{"error":{"code":"","message":"m"}}' } },
+    { nombre: 'json_que_no_es_objeto', respuesta: { status: 400, cuerpo: '["invalid_request"]' } },
+    { nombre: 'exito_que_no_es_json', respuesta: { status: 200, cuerpo: 'OK' } },
+  ]
+
   return {
     formato: FORMATO,
     descripcion:
@@ -282,6 +372,27 @@ function vectoresErrores() {
       ]),
     ),
     desconocido: { code: 'codigo_que_no_existe', clase: 'CoatiPaySDKError' },
+    respuestas: {
+      descripcion:
+        'Cómo interpreta el SDK la respuesta HTTP de una llamada, o su ausencia. Un error de CoatiPay es un objeto JSON cuyo `error` es un objeto con `code` de texto no vacío: lanza la clase de su categoría, con `param` null si no viene y, sin `doc_url`, la página del código. Sin respuesta (red, DNS, timeout), un cuerpo que no es JSON (aunque sea un 2xx) o un JSON de error que no es de CoatiPay → NetworkError: code network_error, hereda de CoatiPaySDKError, con `status` (el HTTP, o null si no hubo respuesta). Un 2xx con JSON es éxito. `respuesta` null = no hubo respuesta.',
+      casos: casos.map((c) => {
+        const r = interpretarRespuesta(c.respuesta)
+        return {
+          nombre: c.nombre,
+          respuesta: c.respuesta,
+          esperado: r.ok
+            ? { ok: true }
+            : {
+                ok: false,
+                clase: r.clase,
+                code: r.code,
+                ...(r.clase === 'NetworkError' ? { status: r.status } : {}),
+                param: r.param,
+                doc_url: r.doc_url,
+              },
+        }
+      }),
+    },
   }
 }
 

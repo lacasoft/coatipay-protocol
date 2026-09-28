@@ -513,29 +513,22 @@ export const GET = relay.x402.handler({
 ```json
 {
   "error": {
-    "code": "intent_expired",
-    "message": "The payment intent has expired.",
+    "code": "payment_in_progress",
+    "message": "A payment for this intent is being settled on-chain; it cannot be cancelled now.",
     "param": null,
-    "doc_url": "https://docs.coatipay.com/errors/intent_expired"
+    "doc_url": "https://coatipay.com/docs/errors/payment_in_progress"
   }
 }
 ```
 
-### Error Code Reference
+Every API error has this shape. `param` names the offending field, if any; `doc_url` is the code's page.
 
-| Code | HTTP | Description |
-|---|---|---|
-| `invalid_api_key` | 401 | API key malformed or revoked |
-| `insufficient_permissions` | 403 | Secret key required |
-| `intent_not_found` | 404 | Payment intent ID does not exist |
-| `intent_expired` | 410 | Intent has passed `expires_at` |
-| `intent_already_settled` | 409 | Cannot modify a settled intent |
-| `no_nodes_available` | 503 | No nodes meet routing criteria — only applies to the Phase 2 multi-node routing engine (see §7); does not occur in the current single-bootstrap-nodeit model |
-| `chain_not_supported` | 400 | Requested chain not active |
-| `amount_too_small` | 400 | Amount below chain minimum |
-| `amount_too_large` | 400 | Amount exceeds node capacity |
-| `invalid_webhook_url` | 400 | Webhook URL not reachable |
-| `node_not_registered` | 403 | Node not in on-chain registry |
+### Catalog
+
+The codes live in one place: `ERROR_CATALOG` in `protocol/src/errors.ts`, published in `@lacasoft/coatipay-protocol`. Each code always comes with the same HTTP status and has a category (`auth`, `validation`, `not_found`, `conflict`, `payment`, `routing`, `rate_limit`, `unavailable`, `internal`). The API can only answer with a code from the catalog, and takes the status from there. It is not copied into this document so that it cannot drift.
+
+- **Public reference:** `https://coatipay.com/docs/errors/<code>`, one page per code, with its cause and how to fix it. The website's CI checks that it covers the whole catalog.
+- **In the SDKs:** each code throws the class of its category (`AuthError`, `ValidationError`, `RoutingError`, `PaymentError`, `RateLimitError`; `CoatiPaySDKError`, the base class, for the rest and for a code the SDK does not know). With no CoatiPay answer, `NetworkError` (code `network_error`, set by the SDK, not the API). The rule is the same in the three SDKs: `protocol/vectors/errores.json`.
 
 ---
 

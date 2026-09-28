@@ -117,11 +117,22 @@ export interface CoatiPayError {
   doc_url: string
 }
 
+/**
+ * A code the SDK sets itself. The API never sends it, so it is not in the
+ * catalog; it has a reference page all the same.
+ */
+export type SdkErrorCode = 'network_error'
+
+/**
+ * Every error an API call throws: the API's, classified by `classifyError`,
+ * and `NetworkError` when there was no CoatiPay answer. One `catch` covers
+ * them all, as in every CoatiPay SDK.
+ */
 export class CoatiPaySDKError extends Error {
-  code: CoatiPayErrorCode
+  code: CoatiPayErrorCode | SdkErrorCode
   param: string | null
   doc_url: string
-  constructor(error: CoatiPayError) {
+  constructor(error: CoatiPayError | (Omit<CoatiPayError, 'code'> & { code: SdkErrorCode })) {
     super(error.message)
     this.name = 'CoatiPaySDKError'
     this.code = error.code
@@ -170,14 +181,29 @@ export class RateLimitError extends CoatiPaySDKError {
   }
 }
 
-/** Transport-level failure: network unreachable, timeout, DNS error. */
-export class NetworkError extends Error {
+/**
+ * The request got no CoatiPay answer: no response at all (network, DNS,
+ * timeout: `status` is `null`), or a response that is not a CoatiPay error
+ * (a proxy's HTML 502, a body that is not JSON: `status` is its HTTP status).
+ * Whether the request took effect is unknown: before retrying a write, check.
+ * Code `network_error`. The rule is shared by every CoatiPay SDK
+ * (`vectors/errores.json`, `respuestas`).
+ */
+export class NetworkError extends CoatiPaySDKError {
+  /** The HTTP status of the response, or `null` if there was none. */
+  status: number | null
   cause: unknown
-  constructor(message: string, cause: unknown) {
-    super(message)
+  constructor(message: string, cause: unknown, status: number | null = null) {
+    super({ code: 'network_error', message, param: null, doc_url: docUrl('network_error') })
     this.name = 'NetworkError'
     this.cause = cause
+    this.status = status
   }
+}
+
+/** The reference page of an error code. */
+export function docUrl(code: string): string {
+  return `https://coatipay.com/docs/errors/${code}`
 }
 
 /**

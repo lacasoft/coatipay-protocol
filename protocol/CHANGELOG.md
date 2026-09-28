@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.6 — 2026-09-28
+
+### Changed
+
+- **`NetworkError` is now a `CoatiPaySDKError`** (code `network_error`), so one
+  `catch` covers everything an API call throws, as in the Python and PHP SDKs.
+  It gains `status`: the HTTP status of a response that is not a CoatiPay
+  error, or `null` when there was no response. Code that checked
+  `instanceof CoatiPaySDKError` before `instanceof NetworkError` now takes the
+  first branch for network failures: check `NetworkError` first.
+- `CoatiPaySDKError.code` is `CoatiPayErrorCode | SdkErrorCode`: the SDK sets
+  `network_error` itself; the API never sends it.
+
+### Added
+
+- **`vectors/errores.json` → `respuestas`**: how an SDK reads the HTTP
+  response of a call, or its absence (15 cases). A CoatiPay error is a JSON
+  object whose `error` is an object with a non-empty `code`; anything else
+  that is not a success — no response, a body that is not JSON (a proxy's HTML
+  502, even a 2xx), a JSON error that is not CoatiPay's (Fastify's default) —
+  is a `NetworkError` with its `status`. The three SDKs disagreed here: a
+  `SyntaxError` in JS, a `JSONDecodeError` or a raw `httpx` exception in
+  Python, an empty result for a 2xx that is not JSON in PHP.
+- `docUrl(code)`: the reference page of an error code.
+
 ## 0.1.5 — 2026-09-28
 
 ### Changed

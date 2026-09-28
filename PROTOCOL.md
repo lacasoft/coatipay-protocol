@@ -508,29 +508,22 @@ export const GET = relay.x402.handler({
 ```json
 {
   "error": {
-    "code": "intent_expired",
-    "message": "The payment intent has expired.",
+    "code": "payment_in_progress",
+    "message": "A payment for this intent is being settled on-chain; it cannot be cancelled now.",
     "param": null,
-    "doc_url": "https://docs.coatipay.com/errors/intent_expired"
+    "doc_url": "https://coatipay.com/docs/errors/payment_in_progress"
   }
 }
 ```
 
-### Referencia de Códigos de Error
+Todo error de la API tiene esta forma. `param` nombra el campo culpable, si lo hay; `doc_url` es la página del código.
 
-| Código | HTTP | Descripción |
-|---|---|---|
-| `invalid_api_key` | 401 | API key malformada o revocada |
-| `insufficient_permissions` | 403 | Se requiere secret key |
-| `intent_not_found` | 404 | El ID del payment intent no existe |
-| `intent_expired` | 410 | El intent ha pasado `expires_at` |
-| `intent_already_settled` | 409 | No se puede modificar un intent liquidado |
-| `no_nodes_available` | 503 | Ningún node cumple con los criterios de routing — solo aplica al motor de routing multi-node de Fase 2 (ver §7); no se produce en el modelo actual de un solo bootstrap nodeit |
-| `chain_not_supported` | 400 | El chain solicitado no está activo |
-| `amount_too_small` | 400 | Monto por debajo del mínimo del chain |
-| `amount_too_large` | 400 | Monto excede la capacidad del node |
-| `invalid_webhook_url` | 400 | URL del webhook no alcanzable |
-| `node_not_registered` | 403 | Node no está en el registro on-chain |
+### Catálogo
+
+Los códigos viven en un solo sitio: `ERROR_CATALOG` en `protocol/src/errors.ts`, publicado en `@lacasoft/coatipay-protocol`. Cada código sale siempre con el mismo HTTP y tiene una categoría (`auth`, `validation`, `not_found`, `conflict`, `payment`, `routing`, `rate_limit`, `unavailable`, `internal`). La API solo puede responder con un código del catálogo, y el HTTP lo toma de ahí. No se copia en este documento para que no pueda desfasarse.
+
+- **Referencia pública:** `https://coatipay.com/docs/errors/<code>`, una página por código, con su causa y cómo resolverlo. El CI de la web comprueba que cubre el catálogo entero.
+- **En los SDK:** cada código lanza la clase de su categoría (`AuthError`, `ValidationError`, `RoutingError`, `PaymentError`, `RateLimitError`; `CoatiPaySDKError`, la base, para las demás y para un código que el SDK no conoce). Sin respuesta de CoatiPay, `NetworkError` (code `network_error`, que pone el SDK, no la API). La regla es la misma en los tres SDK: `protocol/vectors/errores.json`.
 
 ---
 

@@ -566,7 +566,14 @@ Header: X-Signature: t=<timestamp>,v1=<hmac_hex>
 HMAC input: <timestamp>.<payload_json>
 ```
 
-Los comercios verifican las firmas usando `relay.webhooks.verify(payload, signature, secret)`.
+Los comercios verifican las firmas con `relay.webhooks.verify(payload, signature, secret)`. Las reglas son las mismas en los tres SDK y las fijan vectores compartidos (`protocol/vectors/webhooks.json`):
+
+- Partes `clave=valor` separadas por comas: un solo `t`, solo dígitos; al menos un `v1`; otras claves se ignoran.
+- `|ahora − t|` no puede pasar de la tolerancia: 300 s por defecto, límite incluido.
+- Vale si coincide **cualquier** `v1`. La API firma hoy con un solo secreto y manda un solo `v1`; aceptar varios deja preparada la rotación sin cortar entregas.
+- Si no vale, el error dice por qué: `malformed_header`, `timestamp_out_of_tolerance` o `no_matching_signature`.
+
+La API aún no rota secretos. Para cambiar uno: registra otro endpoint con la misma URL, verifica con los dos secretos mientras convivan y deduplica por `event.id` (el mismo evento llega a los dos con el mismo id); después borra el viejo con `DELETE /v1/webhooks/:id`.
 
 ---
 
@@ -669,12 +676,13 @@ try {
   if (e instanceof CoatiPaySDKError) {
     console.log(e.code)    // 'invalid_api_key'
     console.log(e.message) // 'Missing or malformed Authorization header.'
-    console.log(e.doc_url) // 'https://docs.coatipay.com/errors/invalid_api_key'
+    console.log(e.doc_url) // 'https://coatipay.com/docs/errors/invalid_api_key'
+    if (e instanceof NetworkError) console.log(e.status) // 502, o null sin respuesta
   }
 }
 ```
 
-Todos los errores de API son instancias de `CoatiPaySDKError`. Los errores de red (timeout, fallo de DNS) se re-lanzan como instancias estándar de `Error` — el SDK no se traga los fallos de red.
+Todo lo que lanza una llamada es un `CoatiPaySDKError`, con la clase de su categoría (`AuthError`, `ValidationError`, `RoutingError`, `PaymentError`, `RateLimitError`; la base para las demás y para un código que el SDK no conoce). Cuando no hay respuesta de CoatiPay —fallo de red, DNS o timeout, o una respuesta que no es un error de CoatiPay, como el 502 en HTML de un proxy— es un `NetworkError` con code `network_error` y el `status` HTTP (o `null`). Entonces no se sabe si la petición surtió efecto: antes de repetir una escritura, compruébalo. La regla es la misma en los tres SDK (`protocol/vectors/errores.json`, `respuestas`).
 
 ### 8.4 Configuración del host
 
