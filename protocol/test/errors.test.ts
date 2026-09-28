@@ -59,6 +59,7 @@ describe('ERROR_CATALOG', () => {
     expect(ERROR_CATALOG.signature_unverifiable.http).toBe(503)
     expect(ERROR_CATALOG.chain_verification_failed.http).toBe(402)
     expect(ERROR_CATALOG.session_required.http).toBe(403)
+    expect(ERROR_CATALOG.payment_in_progress.http).toBe(409)
   })
 })
 

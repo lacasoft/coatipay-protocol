@@ -76,6 +76,11 @@ export const ERROR_CATALOG = {
 
   // ── Conflict with the current state ────────────────────────────
   intent_already_settled: { http: 409, category: 'conflict' },
+  /**
+   * The intent cannot be cancelled now: a payment for it is being settled
+   * on-chain. It ends `settled`, or cancellable again if that payment fails.
+   */
+  payment_in_progress: { http: 409, category: 'conflict' },
   /** Already settled, cancelled or expired. */
   intent_not_payable: { http: 400, category: 'conflict' },
   nonce_already_used: { http: 409, category: 'conflict' },

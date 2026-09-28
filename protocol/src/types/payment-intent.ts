@@ -3,12 +3,20 @@
 export type Chain = 'base' | 'polygon' | 'solana'
 export type Currency = 'usdc' | 'btc'
 
-export type PaymentIntentStatus =
-  | 'created'
-  | 'settled'
-  | 'failed'
-  | 'expired'
-  | 'cancelled'
+/**
+ * - `created`: waiting for the payment.
+ * - `settled`: paid on-chain. Final: nothing comes after it.
+ * - `expired`: `expires_at` passed with no payment in flight.
+ * - `cancelled`: cancelled by the merchant, with no payment in flight.
+ *
+ * There is no `failed` state: a payment that does not go through leaves the
+ * intent `created`, still payable until it expires.
+ *
+ * The chain has the last word: in a rare case — a payment already on its way
+ * when the intent expired or was cancelled — an `expired` or `cancelled`
+ * intent becomes `settled`.
+ */
+export type PaymentIntentStatus = 'created' | 'settled' | 'expired' | 'cancelled'
 
 export interface PaymentIntent {
   id: string
