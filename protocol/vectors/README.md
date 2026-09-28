@@ -7,7 +7,7 @@ cada uno—, una divergencia deja de ser una sorpresa en producción: es un test
 
 | Fichero | Qué fija |
 |---|---|
-| `nonce.json` | El nonce de la autorización ERC-3009: `keccak256` de los bytes UTF-8 del id del cobro. Nunca del id leído como hexadecimal (ver `0xdeadbeef`). |
+| `nonce.json` | El nonce de la autorización ERC-3009: `keccak256` de los bytes UTF-8 del id del cobro. Nunca del id leído como hexadecimal (ver `0xdeadbeef`). Y los ids que hay que **rechazar** con un error (vacío, solo espacios, un bytes32 ya derivado): su hash daría un nonce que parece válido y no es el de ningún cobro. |
 | `autorizacion.json` | Por red: el dominio EIP-712 del USDC, su separador, el mensaje `ReceiveWithAuthorization`, el digest, la firma con una clave de prueba pública y el cuerpo de `POST /v1/payment_intents/:id/authorize`. |
 | `webhooks.json` | La verificación de la cabecera `X-Signature`: 21 casos con su resultado (válida, o el motivo). |
 | `errores.json` | Cada código del catálogo con su estado HTTP, su categoría y la clase de error que lanza el SDK. |

@@ -47,13 +47,20 @@ function vectoresNonce() {
     'pi_a',
     '0xdeadbeef', // parece hexadecimal: se hashea como texto
     'pi_ñandú', // no ASCII: UTF-8
-    '',
   ]
   return {
     formato: FORMATO,
     descripcion:
-      'El nonce de la autorización ERC-3009 es el id on-chain del cobro: keccak256 de los bytes UTF-8 del id. Nunca del id leído como hexadecimal.',
+      'El nonce de la autorización ERC-3009 es el id on-chain del cobro: keccak256 de los bytes UTF-8 del id. Nunca del id leído como hexadecimal. Los ids de `rechazados` se rechazan con un error, sin hashearlos: su hash daría un nonce que parece válido y no es el de ningún cobro.',
     casos: ids.map((intent_id) => ({ intent_id, nonce: nonceDe(intent_id) })),
+    rechazados: [
+      { intent_id: '', motivo: 'vacío' },
+      { intent_id: '   ', motivo: 'solo espacios' },
+      {
+        intent_id: `0x${'ab'.repeat(32)}`,
+        motivo: 'ya es un id on-chain (bytes32): hashearlo otra vez daría otro nonce',
+      },
+    ],
   }
 }
 

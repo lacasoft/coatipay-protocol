@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.5 — 2026-09-28
+
+### Changed
+
+- **`vectors/nonce.json`: ids that must be rejected** (`rechazados`): empty,
+  whitespace only, and an already-derived bytes32. Their hash is a nonce that
+  looks valid and belongs to no intent, so an SDK must throw instead. Found by
+  the vectors themselves: the JS and PHP SDKs signed a whitespace-only id,
+  Python rejected it. The empty id, which 0.1.4 listed with a nonce, moves here.
+
 ## 0.1.4 — 2026-09-28
 
 ### Added
