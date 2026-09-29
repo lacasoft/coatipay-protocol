@@ -330,7 +330,7 @@ created ──► expired
 
 `settled` is the only successful terminal state, and it is final: once `IntentSettled` is emitted there is no later transition, because the protocol has no reversal and no adjudication (see ADR-004). Additional terminal states: `cancelled` (cancelled by the merchant) and `expired` (passed `expires_at`), both only with no payment on its way.
 
-**There is no `failed` state.** A payment that does not go through (invalid signature, insufficient balance, expired authorization) leaves the intent `created`, still payable until it expires. Today, if the authorization was rejected at settlement, the same payer cannot sign that intent again (409 `nonce_already_used`); another wallet can.
+**There is no `failed` state.** A payment that does not go through (invalid signature, insufficient balance, expired authorization) leaves the intent `created`, still payable until it expires. If the authorization was rejected at settlement or expired, the same payer can sign again: the API accepts a single **live** authorization (queued, claimed or settled) per payer and intent, regardless of the case of the address or the nonce, and answers a second one with 409 `nonce_already_used`. Retrying is safe: USDC does not let a nonce be used twice.
 
 **The chain has the last word.** If a payment was already on its way to the chain when the intent expired or was cancelled, the reconciler applies the `IntentSettled` and the intent becomes `settled`. The API avoids it where it can — it does not cancel or expire an intent with an authorization a nodeit has already claimed — but cannot rule it out: a claim released as stuck keeps valid signatures and can settle late.
 
