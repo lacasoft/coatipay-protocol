@@ -327,7 +327,7 @@ created ──► expired
 
 `settled` es el único estado terminal de éxito y es definitivo: una vez emitido `IntentSettled` no hay ninguna transición posterior, porque el protocolo no tiene reversos ni adjudicación (ver ADR-004). Estados terminales adicionales: `cancelled` (cancelado por el comercio) y `expired` (pasó `expires_at`), los dos solo sin un pago en camino.
 
-**No hay estado `failed`.** Un pago que no pasa (firma inválida, saldo insuficiente, autorización caducada) deja el intent en `created`, y se puede seguir pagando hasta que vence. Hoy, si la autorización se rechazó al liquidarla, el mismo pagador no puede volver a firmar ese intent (409 `nonce_already_used`); otra cartera sí.
+**No hay estado `failed`.** Un pago que no pasa (firma inválida, saldo insuficiente, autorización caducada) deja el intent en `created`, y se puede seguir pagando hasta que vence. Si la autorización se rechazó al liquidarla o caducó, el mismo pagador puede volver a firmar: la API admite una sola autorización **viva** (en cola, reclamada o liquidada) por pagador y cobro, sin distinguir mayúsculas en la dirección ni en el nonce, y responde 409 `nonce_already_used` a una segunda. Reintentar es seguro: el USDC no deja usar dos veces un nonce.
 
 **La cadena manda.** Si un pago ya iba camino de la cadena cuando el intent venció o se canceló, el reconciliador aplica el `IntentSettled` y el intent pasa a `settled`. La API lo evita en lo posible —no cancela ni vence un intent con una autorización que un nodeit ya reclamó—, pero no puede impedirlo del todo: un reclamo liberado por atascado conserva firmas válidas y puede liquidarse tarde.
 
