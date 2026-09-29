@@ -565,7 +565,14 @@ Header: X-Signature: t=<timestamp>,v1=<hmac_hex>
 HMAC input: <timestamp>.<payload_json>
 ```
 
-Merchants verify signatures using `relay.webhooks.verify(payload, signature, secret)`.
+Merchants verify signatures with `relay.webhooks.verify(payload, signature, secret)`. The rules are the same in the three SDKs, pinned by shared vectors (`protocol/vectors/webhooks.json`):
+
+- Comma-separated `key=value` parts: exactly one `t`, digits only; at least one `v1`; other keys are ignored.
+- `|now − t|` must not exceed the tolerance: 300 s by default, inclusive.
+- Valid if **any** `v1` matches. Today the API signs with a single secret and sends a single `v1`; accepting several keeps rotation ready without dropping deliveries.
+- When it fails, the error says why: `malformed_header`, `timestamp_out_of_tolerance` or `no_matching_signature`.
+
+The API does not rotate secrets yet. To change one: register another endpoint with the same URL, verify with both secrets while they coexist and deduplicate by `event.id` (the same event reaches both with the same id); then delete the old one with `DELETE /v1/webhooks/:id`.
 
 ---
 
@@ -668,12 +675,13 @@ try {
   if (e instanceof CoatiPaySDKError) {
     console.log(e.code)    // 'invalid_api_key'
     console.log(e.message) // 'Missing or malformed Authorization header.'
-    console.log(e.doc_url) // 'https://docs.coatipay.com/errors/invalid_api_key'
+    console.log(e.doc_url) // 'https://coatipay.com/docs/errors/invalid_api_key'
+    if (e instanceof NetworkError) console.log(e.status) // 502, or null with no response
   }
 }
 ```
 
-All API errors are instances of `CoatiPaySDKError`. Network errors (timeout, DNS failure) are re-thrown as standard `Error` instances — the SDK does not swallow network failures.
+Everything a call throws is a `CoatiPaySDKError`, with the class of its category (`AuthError`, `ValidationError`, `RoutingError`, `PaymentError`, `RateLimitError`; the base class for the rest and for a code the SDK does not know). When there is no CoatiPay answer —a network, DNS or timeout failure, or a response that is not a CoatiPay error, such as a proxy's HTML 502— it is a `NetworkError` with code `network_error` and the HTTP `status` (or `null`). Whether the request took effect is then unknown: before repeating a write, check. The rule is the same in the three SDKs (`protocol/vectors/errores.json`, `respuestas`).
 
 ### 8.4 Host configuration
 

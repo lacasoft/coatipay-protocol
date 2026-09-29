@@ -181,5 +181,222 @@
   "desconocido": {
     "code": "codigo_que_no_existe",
     "clase": "CoatiPaySDKError"
+  },
+  "respuestas": {
+    "descripcion": "Cómo interpreta el SDK la respuesta HTTP de una llamada, o su ausencia. Un error de CoatiPay es un objeto JSON cuyo `error` es un objeto con `code` de texto no vacío: lanza la clase de su categoría, con `param` null si no viene y, sin `doc_url`, la página del código. Sin respuesta (red, DNS, timeout), un cuerpo que no es JSON (aunque sea un 2xx) o un JSON de error que no es de CoatiPay → NetworkError: code network_error, hereda de CoatiPaySDKError, con `status` (el HTTP, o null si no hubo respuesta). Un 2xx con JSON es éxito. `respuesta` null = no hubo respuesta.",
+    "casos": [
+      {
+        "nombre": "exito",
+        "respuesta": {
+          "status": 200,
+          "cuerpo": "{\"id\":\"pi_1\",\"status\":\"created\"}"
+        },
+        "esperado": {
+          "ok": true
+        }
+      },
+      {
+        "nombre": "error_de_la_api",
+        "respuesta": {
+          "status": 409,
+          "cuerpo": "{\"error\":{\"code\":\"payment_in_progress\",\"message\":\"Mensaje de la API\",\"param\":null,\"doc_url\":\"https://coatipay.com/docs/errors/payment_in_progress\"}}"
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "CoatiPaySDKError",
+          "code": "payment_in_progress",
+          "param": null,
+          "doc_url": "https://coatipay.com/docs/errors/payment_in_progress"
+        }
+      },
+      {
+        "nombre": "error_de_la_api_con_su_clase",
+        "respuesta": {
+          "status": 401,
+          "cuerpo": "{\"error\":{\"code\":\"invalid_api_key\",\"message\":\"Mensaje de la API\",\"param\":null,\"doc_url\":\"https://coatipay.com/docs/errors/invalid_api_key\"}}"
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "AuthError",
+          "code": "invalid_api_key",
+          "param": null,
+          "doc_url": "https://coatipay.com/docs/errors/invalid_api_key"
+        }
+      },
+      {
+        "nombre": "error_con_param",
+        "respuesta": {
+          "status": 400,
+          "cuerpo": "{\"error\":{\"code\":\"amount_below_minimum\",\"message\":\"Mensaje de la API\",\"param\":\"amount\",\"doc_url\":\"https://coatipay.com/docs/errors/amount_below_minimum\"}}"
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "ValidationError",
+          "code": "amount_below_minimum",
+          "param": "amount",
+          "doc_url": "https://coatipay.com/docs/errors/amount_below_minimum"
+        }
+      },
+      {
+        "nombre": "error_sin_doc_url",
+        "respuesta": {
+          "status": 400,
+          "cuerpo": "{\"error\":{\"code\":\"invalid_request\",\"message\":\"m\",\"param\":\"amount\"}}"
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "ValidationError",
+          "code": "invalid_request",
+          "param": "amount",
+          "doc_url": "https://coatipay.com/docs/errors/invalid_request"
+        }
+      },
+      {
+        "nombre": "codigo_desconocido",
+        "respuesta": {
+          "status": 418,
+          "cuerpo": "{\"error\":{\"code\":\"codigo_de_una_api_mas_nueva\",\"message\":\"Mensaje de la API\",\"param\":null,\"doc_url\":\"https://coatipay.com/docs/errors/codigo_de_una_api_mas_nueva\"}}"
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "CoatiPaySDKError",
+          "code": "codigo_de_una_api_mas_nueva",
+          "param": null,
+          "doc_url": "https://coatipay.com/docs/errors/codigo_de_una_api_mas_nueva"
+        }
+      },
+      {
+        "nombre": "sin_respuesta",
+        "respuesta": null,
+        "esperado": {
+          "ok": false,
+          "clase": "NetworkError",
+          "code": "network_error",
+          "status": null,
+          "param": null,
+          "doc_url": "https://coatipay.com/docs/errors/network_error"
+        }
+      },
+      {
+        "nombre": "proxy_502_en_html",
+        "respuesta": {
+          "status": 502,
+          "cuerpo": "<html><body>502 Bad Gateway</body></html>"
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "NetworkError",
+          "code": "network_error",
+          "status": 502,
+          "param": null,
+          "doc_url": "https://coatipay.com/docs/errors/network_error"
+        }
+      },
+      {
+        "nombre": "proxy_503_vacio",
+        "respuesta": {
+          "status": 503,
+          "cuerpo": ""
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "NetworkError",
+          "code": "network_error",
+          "status": 503,
+          "param": null,
+          "doc_url": "https://coatipay.com/docs/errors/network_error"
+        }
+      },
+      {
+        "nombre": "error_por_defecto_de_fastify",
+        "respuesta": {
+          "status": 500,
+          "cuerpo": "{\"statusCode\":500,\"error\":\"Internal Server Error\",\"message\":\"boom\"}"
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "NetworkError",
+          "code": "network_error",
+          "status": 500,
+          "param": null,
+          "doc_url": "https://coatipay.com/docs/errors/network_error"
+        }
+      },
+      {
+        "nombre": "json_sin_error",
+        "respuesta": {
+          "status": 500,
+          "cuerpo": "{\"message\":\"boom\"}"
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "NetworkError",
+          "code": "network_error",
+          "status": 500,
+          "param": null,
+          "doc_url": "https://coatipay.com/docs/errors/network_error"
+        }
+      },
+      {
+        "nombre": "error_sin_code",
+        "respuesta": {
+          "status": 400,
+          "cuerpo": "{\"error\":{\"message\":\"m\"}}"
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "NetworkError",
+          "code": "network_error",
+          "status": 400,
+          "param": null,
+          "doc_url": "https://coatipay.com/docs/errors/network_error"
+        }
+      },
+      {
+        "nombre": "error_con_code_vacio",
+        "respuesta": {
+          "status": 400,
+          "cuerpo": "{\"error\":{\"code\":\"\",\"message\":\"m\"}}"
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "NetworkError",
+          "code": "network_error",
+          "status": 400,
+          "param": null,
+          "doc_url": "https://coatipay.com/docs/errors/network_error"
+        }
+      },
+      {
+        "nombre": "json_que_no_es_objeto",
+        "respuesta": {
+          "status": 400,
+          "cuerpo": "[\"invalid_request\"]"
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "NetworkError",
+          "code": "network_error",
+          "status": 400,
+          "param": null,
+          "doc_url": "https://coatipay.com/docs/errors/network_error"
+        }
+      },
+      {
+        "nombre": "exito_que_no_es_json",
+        "respuesta": {
+          "status": 200,
+          "cuerpo": "OK"
+        },
+        "esperado": {
+          "ok": false,
+          "clase": "NetworkError",
+          "code": "network_error",
+          "status": 200,
+          "param": null,
+          "doc_url": "https://coatipay.com/docs/errors/network_error"
+        }
+      }
+    ]
   }
 }

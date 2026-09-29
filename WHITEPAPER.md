@@ -567,7 +567,7 @@ SCORE_CACHE_TTL          = 60 segundos
 | Recurso | Enlace |
 |---------|--------|
 | Repositorio | github.com/lacasoft/coatipay-protocol |
-| Documentación | docs.coatipay.com |
+| Documentación | coatipay.com/docs |
 | SDK npm | @lacasoft/coatipay-sdk |
 | Protocolo x402 | x402.org |
 | Contacto | hola@coatipay.com |

@@ -2,7 +2,14 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { type Hex, hashTypedData, recoverTypedDataAddress } from 'viem'
 import { describe, expect, it } from 'vitest'
-import { ERROR_CATALOG, RECEIVE_WITH_AUTHORIZATION_TYPES } from '../src'
+import {
+  type CoatiPayError,
+  CoatiPaySDKError,
+  classifyError,
+  ERROR_CATALOG,
+  NetworkError,
+  RECEIVE_WITH_AUTHORIZATION_TYPES,
+} from '../src'
 import { DIRECTORIO, generarVectores } from '../scripts/generar-vectores'
 
 /// El orden de la curva secp256k1: una firma con s > n/2 la rechaza el USDC.
@@ -52,5 +59,25 @@ describe('vectores compartidos entre SDK', () => {
 
   it('los errores cubren el catálogo entero', () => {
     expect(Object.keys(leer('errores.json').codigos).sort()).toEqual(Object.keys(ERROR_CATALOG).sort())
+  })
+
+  // Las clases de `respuestas` las pone la referencia del script; aquí se
+  // contrastan con las clases reales de este paquete, que usa el SDK de JS.
+  it('cada respuesta esperada es la clase que construye este paquete', () => {
+    for (const c of leer('errores.json').respuestas.casos) {
+      const e = c.esperado
+      if (e.ok) continue
+      const real =
+        e.clase === 'NetworkError'
+          ? new NetworkError('m', undefined, e.status)
+          : classifyError({ code: e.code, message: 'm', param: e.param, doc_url: e.doc_url } as CoatiPayError)
+      expect(real.name, c.nombre).toBe(e.clase)
+      expect(real, c.nombre).toBeInstanceOf(CoatiPaySDKError)
+      expect({ code: real.code, param: real.param, doc_url: real.doc_url }, c.nombre).toEqual({
+        code: e.code,
+        param: e.param,
+        doc_url: e.doc_url,
+      })
+    }
   })
 })
