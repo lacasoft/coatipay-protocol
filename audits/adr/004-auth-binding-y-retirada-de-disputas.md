@@ -4,7 +4,7 @@
 > **Date**: 2026-08-29
 > **Supersede**: ADR-001 §3.10 (integración con disputas), ADR-002 §2.1 en lo
 > relativo al slashing, y el registro permissionless de intents de ADR-001.
-> El reparto de comisiones (100 bps, 70/30) sigue vigente sin cambios.
+> El reparto de comisiones que describe esta ADR es histórico. ADR-005 supersedió esos valores: el fee vigente es 150 bps (1.5%), con 105 bps (1.05%) para el nodeit y 45 bps (0.45%) para el treasury.
 
 ## Contexto
 
@@ -24,7 +24,7 @@ elige quien envía la transacción — el nodeit, que es **la parte no confiable
 diseño**. Un nodeit malicioso registraba un intent propio por el mismo importe y
 aplicaba ahí la firma del pagador.
 
-Reproducido: el atacante se lleva **997 de 1000 USDC** (99% del comercio + 0.7%
+Reproducido con el reparto histórico anterior a ADR-005: el atacante se lleva **997 de 1000 USDC** (99% del comercio + 0.7%
 del operador) y el comercio honesto recibe cero.
 
 Esto anulaba la razón de ser del SettlementHub, que ADR-001 justifica diciendo
@@ -137,7 +137,7 @@ disputas:
   reasignó las disputas a «castigar mala conducta de enrutamiento».
 
 Con F-1 corregida, lo peor que puede hacer un nodeit es **negarse a liquidar**, y
-eso ya se autocastiga: no cobra su 0.7%. El castigo económico no aporta una
+eso ya se autocastiga: deja de cobrar su parte del fee. El castigo económico no aporta una
 defensa que el diseño no tenga ya.
 
 **El stake se mantiene**, y sigue siendo obligatorio: acredita a un nodeit para

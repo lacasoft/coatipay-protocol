@@ -183,7 +183,7 @@ contract SettlementHubAuthTest is Test, IntentSigning {
         vm.prank(relayer);
         hub.payIntentWithAuthorization(auth);
 
-        // 1000 USDC = 990 merchant + 7 operator + 3 treasury (100 bps total, 70/30)
+        // 1000 USDC = 985 merchant + 10.5 nodeit + 4.5 treasury (150 bps total, 70/30)
         assertEq(usdc.balanceOf(merchant), 985_000_000, "merchant 98.5%");
         assertEq(usdc.balanceOf(operator), 10_500_000, "operator 1.05%");
         assertEq(usdc.balanceOf(treasury), 4_500_000, "treasury 0.45%");

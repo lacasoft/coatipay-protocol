@@ -13,7 +13,7 @@ import {IERC20} from "../src/interfaces/IERC20.sol";
 ///   1. registerIntent succeeds with the configured operator wallet
 ///   2. EIP-712 ReceiveWithAuthorization signed off-chain is accepted by
 ///      USDC + flows through SettlementHub.payIntentWithAuthorization
-///   3. Funds split atomically: 99% merchant + 0.7% operator + 0.3% treasury
+///   3. Funds split atomically: 98.5% merchant + 1.05% nodeit + 0.45% treasury
 ///   4. The IntentSettled event is emitted (consumable by the daemon's
 ///      SettlementEventWatcher)
 ///
@@ -26,7 +26,7 @@ import {IERC20} from "../src/interfaces/IERC20.sol";
 ///   USDC_ADDRESS              — Centre USDC on the target chain
 ///   PAYER_PRIVATE_KEY         — signs the EIP-712 + must hold USDC
 ///   OPERATOR_PRIVATE_KEY      — submits the txs + pays gas
-///   MERCHANT_ADDRESS          — destination for the 99% (any address)
+///   MERCHANT_ADDRESS          — destination for the 98.5% (any address)
 ///   E2E_INTENT_ID             — string like "pi_e2e_001" (used to derive bytes32 key)
 ///   E2E_AMOUNT_USDC_UNITS     — amount in 6-decimal base units (e.g. 100000 = 0.10 USDC)
 ///
