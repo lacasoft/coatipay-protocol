@@ -6,6 +6,7 @@
 > **Supersedes**: — (refines ADR-001 §3.7 fee constants and §5 consequences)
 > **Implementation**: Phase A (fee recalibration + SSOT) is in PR `feat/fee-recalibration-100bps`.
 > Phase C (mainnet redeploy) is tracked as follow-up work; not a blocker for this ADR's acceptance.
+> **Fee values in this ADR are historical and superseded by ADR-005.** The current fee is 150 bps total: 105 bps (1.05%) to the nodeit and 45 bps (0.45%) to the treasury. The gas-abstraction decision remains recorded here.
 >
 > ⚠️ **§2.2 / Phase B (Circle Paymaster) is SUPERSEDED by [ADR-003](003-gas-abstraction-via-erc3009.md).**
 > Gas abstraction ships via **ERC-3009 gasless settlement** (payer signs an authorization off-chain,

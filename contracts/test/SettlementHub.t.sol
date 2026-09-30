@@ -209,7 +209,7 @@ contract SettlementHubTest is Test, IntentSigning {
         vm.stopPrank();
 
         // Verify split
-        assertEq(usdc.balanceOf(merchant), merchantAmount, "merchant gets 99.0%");
+        assertEq(usdc.balanceOf(merchant), merchantAmount, "merchant gets 98.5%");
         assertEq(usdc.balanceOf(operator), operatorFee, "operator gets 1.05%");
         assertEq(usdc.balanceOf(treasury), treasuryFee, "treasury gets 0.45%");
         assertEq(usdc.balanceOf(address(hub)), 0, "contract holds nothing post-settle");

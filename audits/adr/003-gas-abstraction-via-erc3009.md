@@ -4,7 +4,7 @@
 > **Date**: 2026-05-14
 > **Author**: Luis Campos (LACA-SOFT)
 > **Supersedes**: ADR-002 §2.2 (Circle Paymaster decision). ADR-002 §2.1 fee
-> structure (100 bps total, 70/30 split) remains in force, unchanged.
+> structure was later superseded by ADR-005. The current fee is 150 bps total: 105 bps (1.05%) to the nodeit and 45 bps (0.45%) to the treasury.
 > **Revisions**:
 > - 2026-05-14 (v1.0): aceptado, mergeado en PR #72.
 > - 2026-05-14 (v1.1): refinamientos post-review externo — added §1.4 (phase
@@ -19,7 +19,7 @@
 
 ADR-002 §2.2 eligió **Circle Paymaster** (ERC-4337 + EIP-7702) como capa de gas abstraction. Durante la planificación de Phase B salió a la luz una alternativa más simple, nativa, y mejor alineada con la tesis non-custodial: **ERC-3009** (`receiveWithAuthorization` / `transferWithAuthorization`) — funcionalidad ya implementada en USDC v2.x desde 2022, sin dependencias externas, sin surcharge, compatible con cualquier wallet que firme EIP-712.
 
-**Decisión**: pivotar a ERC-3009. Agregar `payIntentWithAuthorization` a `SettlementHub.sol`. El nodeit que ya recibe el intent submite la transacción + paga el gas en ETH; recupera el costo del 0.7% que cobra. El payer solo firma un mensaje EIP-712 off-chain — gratis, sin gas, sin smart-account, sin EIP-7702.
+**Decisión**: pivotar a ERC-3009. Agregar `payIntentWithAuthorization` a `SettlementHub.sol`. El nodeit que ya recibe el intent submite la transacción + paga el gas en ETH; el cálculo original asumía el fee de 0.7% vigente entonces. El fee vigente es 1.05%, según ADR-005. El payer solo firma un mensaje EIP-712 off-chain — gratis, sin gas, sin smart-account, sin EIP-7702.
 
 **Por qué este pivot vale la pena**:
 - Cero dependencias externas (Circle, Pimlico bundler, EIP-7702 wallet support)
@@ -43,9 +43,9 @@ ADR-002 §2.2 eligió Circle Paymaster basándose en research que enfatizaba ERC
 
 ### 1.2 Lo que NO cambia de ADR-002
 
-ADR-002 §2.1 (fee structure: 100 bps total, 70/30 split nodeit/treasury) **se mantiene íntegro**. Esa decisión está basada en análisis económico (operator break-even, treasury sustainability, Stripe comparativa) y es independiente del mecanismo de gas abstraction.
+La decisión de ADR-002 §2.1 sobre el fee (100 bps total, split 70/30 nodeit/treasury) fue supersedida por ADR-005. El fee vigente es 150 bps total: 105 bps (1.05%) para el nodeit y 45 bps (0.45%) para el treasury. La decisión de gas abstraction de esta ADR no cambia.
 
-Las constantes del contrato (`PROTOCOL_FEE_BPS=100`, `TREASURY_SHARE_BPS=30`, `OPERATOR_SHARE_BPS=70`) y el SSOT generator (PR #71) **no requieren cambios**.
+ADR-005 actualizó las constantes del contrato a `PROTOCOL_FEE_BPS=150`, `TREASURY_SHARE_BPS=45` y `OPERATOR_SHARE_BPS=105`; el generador SSOT (PR #71) sigue derivándolas desde `SettlementHub.sol`. Estos valores no alteran la decisión de gas abstraction.
 
 ### 1.3 Lo que SÍ cambia
 
@@ -238,11 +238,13 @@ Medidos con `forge snapshot` post-implementación (PR de Phase B1, MockUSDCAuth 
 
 ### 2.3 Quién paga el gas
 
-El **nodeit** que recibió el intent submite `payIntentWithAuthorization` y paga el gas en ETH. Recupera el costo de su 0.7% de fee.
+El **nodeit** que recibió el intent submite `payIntentWithAuthorization` y paga el gas en ETH.
+
+> Los cálculos económicos de esta sección usan el fee histórico de 0.7% vigente al redactarse ADR-003. El fee actual es 1.05% para el nodeit (ADR-005); las cifras de margen de la tabla son históricas.
 
 Análisis económico (Base mainnet, gas baseline ~10-30 gwei → costo ~$0.015-0.025 por tx):
 
-| Pago | Fee nodeit (0.7%) | Gas | Margen neto |
+| Pago | Fee nodeit (0.7%, histórico) | Gas | Margen neto |
 |---|---|---|---|
 | $1 | $0.007 | $0.025 | -$0.018 (declinar) |
 | $3 | $0.021 | $0.025 | -$0.004 (declinar) |
@@ -304,7 +306,7 @@ Mitigación: los valores viven en un único origen — `USDC_DOMAIN_NAMES` en `@
 | Soporte de wallets | Solo wallets EIP-7702 (Metamask post-Pectra, Coinbase, Trust) | **Cualquier wallet que firme EIP-712** (= todas, incluido Ledger/Trezor) |
 | Smart-account requerido | Sí, vía EIP-7702 delegation | **No** |
 | Surcharge sobre gas | ~10% Circle + ~10% Pimlico ≈ **21%** | **0%** |
-| Quién paga gas | Payer (en USDC, dentro de la tx) | Nodeit (en ETH, recupera del 0.7%) |
+| Quién paga gas | Payer (en USDC, dentro de la tx) | Nodeit (en ETH; la comparación económica de esta ADR asumía el fee histórico de 0.7%) |
 | Latencia extra | UserOp via bundler ~1-3s | **Tx directa, sin overhead** |
 | Cambios en contrato | Ninguno (usa `payIntentWithPermit`) | + 1 función + 1 interface |
 | Cambios en SDK | LARGO (UserOp, EIP-7702 detect, bundler, doble permit) | MEDIO (1 firma EIP-712) |
@@ -321,7 +323,7 @@ Mitigación: los valores viven en un único origen — `USDC_DOMAIN_NAMES` en `@
 
 2. **Mass-market wallets, sin discriminación**. EIP-7702 es de mayo 2025; muchos hardware wallets aún no lo soportan en firmware. ERC-3009 funciona con **cualquier wallet** que firme EIP-712 — un estándar de 2018. Esto es crítico para el target LATAM, donde gran parte del mercado usa wallets básicos o hardware.
 
-3. **Sin surcharge externo**. Circle 10% + Pimlico 10% se acumulan sobre cada tx. En ERC-3009, el "surcharge" implícito = el gas que el nodeit absorbe (~$0.025), pero ya está cubierto por el 0.7% que cobra. El cost para el sistema es el mismo, pero **el dinero queda en el ecosistema OpenRelay** en vez de irse a Circle/Pimlico.
+3. **Sin surcharge externo**. Circle 10% + Pimlico 10% se acumulan sobre cada tx. En ERC-3009, el "surcharge" implícito = el gas que el nodeit absorbe (~$0.025), pero el cálculo original lo cubría con el fee histórico de 0.7%. El fee actual del nodeit es 1.05% (ADR-005). El cost para el sistema es el mismo, pero **el dinero queda en el ecosistema OpenRelay** en vez de irse a Circle/Pimlico.
 
 4. **Consistencia operacional**. El nodeit ya paga gas en ETH para `registerIntent`. Sumar `payIntentWithAuthorization` al mismo modelo es una extensión natural — no introduce un patrón nuevo (ERC-4337 UserOps, bundlers, paymasters) que requiera explicar a operadores chicos.
 
@@ -454,7 +456,7 @@ Tres comportamientos esperados del nodeit, todos **operacionales** (implementado
 
 ### 7.3 Neutral
 
-- **Fee structure intacto**: 100 bps 70/30 de ADR-002 §2.1 sin cambios.
+- **Fee structure en ese momento**: 100 bps 70/30 de ADR-002 §2.1; los valores fueron supersedidos después por ADR-005.
 - **`payIntent` y `payIntentWithPermit` siguen existiendo**: 3 caminos de pago coexisten, payer/SDK eligen el adecuado.
 - **No bloquea x402 micropagos**: el patrón batched (Phase 3) está claro, no requiere arquitectura nueva.
 

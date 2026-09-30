@@ -10,6 +10,7 @@
 > and `TREASURY_SHARE_BPS` are different from what §3.7 originally documents.
 > See `audits/adr/002-fee-structure-and-gas-abstraction.md` for the
 > economic analysis behind the change.
+> **Current fee values**: the historical values in this ADR were superseded by ADR-002 and later by ADR-005. The current split is 150 bps total: 105 bps (1.05%) to the nodeit and 45 bps (0.45%) to the treasury.
 
 ---
 

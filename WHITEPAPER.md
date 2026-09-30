@@ -312,10 +312,7 @@ treasury está fijado en el mismo sitio. El ahorro frente a Stripe depende del t
 del pago: ~49% en pagos grandes, donde manda el porcentaje; ~66% en un pago de $20 y
 ~83% en uno de $5, donde el cargo fijo de $0.30 de Stripe pesa más.
 
-> Nota: el fee subió de 50 a 100 bps en [ADR-002](audits/adr/002-fee-structure-and-gas-abstraction.md)
-> y de 100 a 150 bps en [ADR-005](audits/adr/005-comision-al-1-5-por-ciento.md), que
-> aprovecha el redespliegue ya obligado por ADR-004. El split 70/30 no cambió: hace
-> viable la economía del nodeit y acelera 3× el path al treasury auto-financiable.
+> Nota: el fee subió de 50 a 100 bps en [ADR-002](audits/adr/002-fee-structure-and-gas-abstraction.md) y de 100 a 150 bps en [ADR-005](audits/adr/005-comision-al-1-5-por-ciento.md), que aprovecha el redespliegue ya obligado por ADR-004. El valor vigente es 150 bps (1.5%). El split 70/30 no cambió: hace viable la economía del nodeit y acelera 3× el path al treasury auto-financiable.
 
 ### 4.4 Treasury
 

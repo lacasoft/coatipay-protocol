@@ -209,7 +209,7 @@ contract SettlementHubAuthBindingTest is Test, IntentSigning {
         vm.prank(operator);
         hub.payIntentWithAuthorization(auth);
 
-        assertEq(usdc.balanceOf(merchant), 985_000_000, "el comercio real cobra el 99%");
+        assertEq(usdc.balanceOf(merchant), 985_000_000, "el comercio real cobra el 98.5%");
         assertEq(usdc.balanceOf(attacker), 0, "el atacante no recibe nada");
     }
 }

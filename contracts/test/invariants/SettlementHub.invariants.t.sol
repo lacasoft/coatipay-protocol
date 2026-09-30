@@ -71,7 +71,7 @@ contract SettlementHubInvariants is Test, IntentSigning {
         assertEq(totalDistributed, totalDistributed, "tautology - used to anchor the assertion");
     }
 
-    // ── Invariant 3: fee split ratio is exactly 1.0% / 0.7% / 0.3% ──
+    // ── Invariant 3: merchant/nodeit/treasury split is 98.5% / 1.05% / 0.45% ──
     //
     // The contract's hardcoded constants must always produce the documented
     // split (ADR-002 recalibration). Fuzz any amount, recompute, verify ratio.
@@ -82,7 +82,7 @@ contract SettlementHubInvariants is Test, IntentSigning {
         uint256 amount = 1_000_000_000_000; // 1M USDC base units
         (uint256 m, uint256 o, uint256 t) = hub.previewSplit(amount);
 
-        // 99.0%, 0.7%, 0.3% of 1M = 985_000_000_000 / 10_500_000_000 / 4_500_000_000
+        // 98.5%, 1.05%, 0.45% of 1M = 985_000_000_000 / 10_500_000_000 / 4_500_000_000
         assertEq(m, 985_000_000_000, "merchant 98.5%");
         assertEq(o, 10_500_000_000, "operator 1.05%");
         assertEq(t, 4_500_000_000, "treasury 0.45%");
