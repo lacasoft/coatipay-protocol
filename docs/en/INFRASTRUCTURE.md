@@ -543,6 +543,8 @@ Rate limiting is applied globally per API key via Redis:
 
 ### 6.5 Webhook delivery
 
+An endpoint is registered with `POST /v1/webhooks` and must be `https://` and public: the API does not accept `http://`, `localhost` or internal addresses, and it does not deliver over http either. The body of every event carries the payment's data, so it never travels in the clear.
+
 Every status change leaves its event in an outbox (`webhook_outbox`), in the same transaction as the change; the webhook worker drains it into the delivery queue. If Redis or the API fail midway, the event stays in the outbox: delivery is at least once.
 
 Webhooks are delivered with exponential backoff retry:
@@ -557,7 +559,7 @@ Attempt 6:   12 hours
 After 6 failures: dead-letter queue (DLQ)
 ```
 
-What exhausts its retries stays in the DLQ, where the merchant can list and replay it: `GET /v1/webhooks/dead_letters` and `POST /v1/webhooks/dead_letters/:id/replay`.
+What exhausts its retries stays in the DLQ, where the merchant can list and replay it: `GET /v1/webhooks/dead_letters` and `POST /v1/webhooks/dead_letters/:id/replay`. A delivery that could not be attempted or rescheduled lands there too, without waiting for the six attempts: `attempts` is then lower and `last_error` says why.
 
 Webhook payloads are signed with HMAC-SHA256:
 ```
@@ -569,10 +571,10 @@ Merchants verify signatures with `relay.webhooks.verify(payload, signature, secr
 
 - Comma-separated `key=value` parts: exactly one `t`, digits only; at least one `v1`; other keys are ignored.
 - `|now − t|` must not exceed the tolerance: 300 s by default, inclusive.
-- Valid if **any** `v1` matches. Today the API signs with a single secret and sends a single `v1`; accepting several keeps rotation ready without dropping deliveries.
+- Valid if **any** `v1` matches. The API sends a single `v1`, or two while a secret rotation lasts: the new secret's and the previous one's.
 - When it fails, the error says why: `malformed_header`, `timestamp_out_of_tolerance` or `no_matching_signature`.
 
-The API does not rotate secrets yet. To change one: register another endpoint with the same URL, verify with both secrets while they coexist and deduplicate by `event.id` (the same event reaches both with the same id); then delete the old one with `DELETE /v1/webhooks/:id`.
+To change an endpoint's secret: `POST /v1/webhooks/:id/rotate_secret` returns a new one, once (`webhooks.rotateSecret` in the JS and PHP SDKs, `rotate_secret` in the Python one). The previous secret keeps signing next to it for `keep_previous_for` seconds — 24 h by default, up to 7 days: every delivery carries two `v1` and the verifier accepts either, so the merchant changes theirs without dropping a delivery. With `keep_previous_for: 0` the previous secret stops signing at once, for one that leaked. Only two ever coexist: rotating again within the window retires the oldest.
 
 ---
 
