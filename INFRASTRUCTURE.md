@@ -544,6 +544,8 @@ El rate limiting se aplica globalmente por API key vía Redis:
 
 ### 6.5 Entrega de webhooks
 
+El endpoint se registra con `POST /v1/webhooks` y debe ser `https://` y público: la API no acepta `http://`, `localhost` ni direcciones internas, y tampoco entrega por http. El cuerpo de cada evento lleva los datos del cobro, así que no viaja en claro.
+
 Cada cambio de estado deja su evento en una bandeja de salida (`webhook_outbox`), en la misma transacción que el cambio; el worker de webhooks la vacía hacia la cola de entrega. Si Redis o la API fallan a mitad, el evento sigue en la bandeja: la entrega es al menos una vez.
 
 Los webhooks se entregan con reintento de backoff exponencial:
@@ -558,7 +560,7 @@ Attempt 6:   12 hours
 After 6 failures: dead-letter queue (DLQ)
 ```
 
-Lo que agota los reintentos queda en el DLQ, y el comercio lo ve y lo reenvía: `GET /v1/webhooks/dead_letters` y `POST /v1/webhooks/dead_letters/:id/replay`.
+Lo que agota los reintentos queda en el DLQ, y el comercio lo ve y lo reenvía: `GET /v1/webhooks/dead_letters` y `POST /v1/webhooks/dead_letters/:id/replay`. Ahí queda también, sin esperar a los seis intentos, una entrega que no se pudo intentar o reprogramar: `attempts` es entonces menor y `last_error` dice por qué.
 
 Los payloads de webhook se firman con HMAC-SHA256:
 ```
@@ -570,10 +572,10 @@ Los comercios verifican las firmas con `relay.webhooks.verify(payload, signature
 
 - Partes `clave=valor` separadas por comas: un solo `t`, solo dígitos; al menos un `v1`; otras claves se ignoran.
 - `|ahora − t|` no puede pasar de la tolerancia: 300 s por defecto, límite incluido.
-- Vale si coincide **cualquier** `v1`. La API firma hoy con un solo secreto y manda un solo `v1`; aceptar varios deja preparada la rotación sin cortar entregas.
+- Vale si coincide **cualquier** `v1`. La API manda un solo `v1`, o dos mientras dura una rotación del secreto: el del nuevo y el del anterior.
 - Si no vale, el error dice por qué: `malformed_header`, `timestamp_out_of_tolerance` o `no_matching_signature`.
 
-La API aún no rota secretos. Para cambiar uno: registra otro endpoint con la misma URL, verifica con los dos secretos mientras convivan y deduplica por `event.id` (el mismo evento llega a los dos con el mismo id); después borra el viejo con `DELETE /v1/webhooks/:id`.
+Para cambiar el secreto de un endpoint: `POST /v1/webhooks/:id/rotate_secret` devuelve uno nuevo, una sola vez (`webhooks.rotateSecret` en los SDK de JS y PHP, `rotate_secret` en el de Python). El anterior sigue firmando junto a él durante `keep_previous_for` segundos —24 h por defecto, hasta 7 días—: cada entrega lleva dos `v1` y el verificador acepta cualquiera, así que el comercio cambia el suyo sin perder entregas. Con `keep_previous_for: 0` el anterior deja de valer en el acto, para un secreto que se filtró. Nunca conviven más de dos: rotar otra vez dentro del plazo retira el más antiguo.
 
 ---
 
