@@ -629,7 +629,7 @@ El settlement no se dispara por un endpoint HTTP expuesto del nodeit, sino por u
 3. `SettlementHub.sol` jala el USDC del payer y lo splittea atómicamente on-chain (98.5% comercio, 1.05% nodeit, 0.45% treasury) y emite `IntentSettled`.
 4. La API lee el evento `IntentSettled` de la cadena, con margen de confirmaciones, y marca el intent como `settled`. El nodeit no informa de nada: la API no aceptaría su palabra (ADR-007).
 
-El nodeit se autentica ante la API **firmando cada petición con su propia clave** (EIP-191), y la API comprueba en el `NodeRegistry` que esa dirección está registrada, activa y con stake suficiente. No hay un secreto compartido entre los dos: antes lo había, y cualquiera que lo tuviera podía hacerse pasar por cualquier nodeit. El comercio nunca define una dirección de pago — el USDC va del payer al comercio dentro de la transacción atómica del contrato.
+El nodeit se autentica ante la API **firmando cada petición con su propia clave** (EIP-191), y la API comprueba en el `NodeRegistry` que esa dirección está registrada, activa y con stake suficiente. El contrato solo mira el stake al registrarse; después lo exige la API en cada petición, y un nodeit que baja del mínimo deja de recibir trabajo en 30 segundos como mucho (ADR-008). No hay un secreto compartido entre los dos: antes lo había, y cualquiera que lo tuviera podía hacerse pasar por cualquier nodeit. El comercio nunca define una dirección de pago — el USDC va del payer al comercio dentro de la transacción atómica del contrato.
 
 ### 7.4 Modelo de pago ERC-3009
 

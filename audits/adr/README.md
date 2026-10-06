@@ -21,6 +21,7 @@ For the current fee values, consult ADR-005; older fee figures in ADR-001 throug
 | [005](./005-comision-al-1-5-por-ciento.md) | Comisión del protocolo del 1.0% al 1.5% | 🟢 Aceptado | 2026-08-31 | ADR-002 §2.1 (fee values) |
 | [006](./006-firmas-del-pagador-y-despliegue-erc6492.md) | Verificar todas las firmas del pagador, y ejecutar solo el despliegue que la política permite | 🟢 Aceptado | 2026-09-26 | — (off-chain only; fixes the ERC-6492 path of ADR-003) |
 | [007](./007-liquidaciones-leidas-de-la-cadena.md) | La API lee de la cadena qué se pagó; el nodeit no informa de nada | 🟢 Aceptado | 2026-09-27 | — (off-chain only; replaces the node-side event watcher of ADR-003) |
+| [008](./008-stake-minimo-exigido-al-repartir-trabajo.md) | El stake mínimo se exige al repartir el trabajo, no en el contrato | 🟢 Aceptado | 2026-10-06 | — (off-chain only; no contract changes) |
 
 ## Status legend
 
