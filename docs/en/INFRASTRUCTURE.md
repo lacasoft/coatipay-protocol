@@ -628,7 +628,7 @@ Settlement is not triggered by an exposed HTTP endpoint on the nodeit, but by an
 3. `SettlementHub.sol` pulls the payer's USDC and splits it atomically on-chain (98.5% merchant, 1.05% nodeit, 0.45% treasury) and emits `IntentSettled`.
 4. The API reads the `IntentSettled` event from the chain, with a confirmation margin, and marks the intent as `settled`. The node reports nothing: the API would not take its word (ADR-007).
 
-The nodeit authenticates to the API by **signing every request with its own key** (EIP-191), and the API checks in the `NodeRegistry` that the address is registered, active and sufficiently staked. There is no shared secret between them: there used to be one, and whoever held it could impersonate any nodeit. The merchant never defines a payment address — the USDC moves from payer to merchant within the contract's atomic transaction.
+The nodeit authenticates to the API by **signing every request with its own key** (EIP-191), and the API checks in the `NodeRegistry` that the address is registered, active and sufficiently staked. The contract only looks at the stake on registration; after that the API enforces it on every request, and a nodeit that drops below the minimum stops receiving work within 30 seconds at most (ADR-008). There is no shared secret between them: there used to be one, and whoever held it could impersonate any nodeit. The merchant never defines a payment address — the USDC moves from payer to merchant within the contract's atomic transaction.
 
 ### 7.4 ERC-3009 payment model
 
