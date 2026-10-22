@@ -1,13 +1,18 @@
 import {
   MAX_BATCH_SIZE,
+  MAX_EXPIRY_OFFSET,
   OPERATOR_SHARE_BPS,
   PROTOCOL_FEE_BPS,
   TREASURY_SHARE_BPS,
+  WITHDRAWAL_TIMELOCK,
 } from './fee-constants.generated'
 
 export const PROTOCOL_VERSION = '0.1'
 export const USDC_BASE_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 export const USDC_DECIMALS = 6
+// Reference values from the whitepaper, NOT on-chain invariants. The minimum
+// in force is `NodeRegistry.minStake()` — a constructor parameter the guardian
+// can raise (40 USDC on Base Sepolia) — so read it from the chain.
 export const MIN_STAKE_USDC = 100_000_000n
 export const TARGET_STAKE_USDC = 10_000_000_000n
 export const ROUTING_TIMEOUT_MS = 5_000
@@ -16,12 +21,20 @@ export const ROUTING_CANDIDATES = 5
 export const MAX_SETTLEMENT_MS = 30_000
 export const SCORE_CACHE_TTL_MS = 60_000
 export const DEFAULT_INTENT_TTL_SECONDS = 1800
-export const STAKE_WITHDRAWAL_TIMELOCK_DAYS = 7
+/// Derived from `WITHDRAWAL_TIMELOCK` (StakeManager.sol), so it cannot drift.
+export const STAKE_WITHDRAWAL_TIMELOCK_DAYS = WITHDRAWAL_TIMELOCK / 86_400
 
 // Protocol invariants — single source of truth is SettlementHub.sol.
 // `fee-constants.generated.ts` is generated from it; never edit by hand.
 // Add a new constant here? See feedback_no_constant_duplication memory rule.
-export { MAX_BATCH_SIZE, OPERATOR_SHARE_BPS, PROTOCOL_FEE_BPS, TREASURY_SHARE_BPS }
+export {
+  MAX_BATCH_SIZE,
+  MAX_EXPIRY_OFFSET,
+  OPERATOR_SHARE_BPS,
+  PROTOCOL_FEE_BPS,
+  TREASURY_SHARE_BPS,
+  WITHDRAWAL_TIMELOCK,
+}
 
 // Legacy ratio names, derived from the canonical bps values so they cannot
 // drift from the on-chain split.

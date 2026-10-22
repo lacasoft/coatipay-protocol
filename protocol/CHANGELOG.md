@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.7 — 2026-10-22
+
+### Added
+
+- **`MAX_EXPIRY_OFFSET`** (seconds, `2592000` = 30 days): `SettlementHub` refuses
+  to register an intent that expires further than this from the moment it is
+  registered (`InvalidExpiry`). Off-chain code can now check an intent's
+  lifetime against what the contract accepts, from the same source.
+- **`WITHDRAWAL_TIMELOCK`** (seconds, `604800` = 7 days), from `StakeManager`.
+
+Both are generated from the contracts, like the fee constants, and the CI gate
+(`check:fee-constants`) now fails if either drifts. The generator understands
+Solidity time units (`30 days`).
+
+### Changed
+
+- `STAKE_WITHDRAWAL_TIMELOCK_DAYS` is now derived from `WITHDRAWAL_TIMELOCK`
+  instead of written by hand. Same value: 7.
+- `MIN_STAKE_USDC` and `TARGET_STAKE_USDC` are documented as reference values,
+  not on-chain invariants: the minimum in force is `NodeRegistry.minStake()`.
+- `CreatePaymentIntentParams.expires_in` documents its limit: below
+  `MAX_EXPIRY_OFFSET`.
+
 ## 0.1.6 — 2026-09-28
 
 ### Changed
