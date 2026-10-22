@@ -40,6 +40,14 @@ export interface PaymentIntent {
    * enough to view or pay it. Absent on intents created before this existed.
    */
   client_secret?: string | null
+  /**
+   * The merchant's wallet this payment goes to, fixed when the intent was
+   * created. The payer's ERC-3009 nonce is `intentIdOf(merchant_wallet, id)`
+   * (ADR-009 §3): whoever signs needs it, and can check where the signature
+   * sends the money. `null` on intents created for a SettlementHub before
+   * ADR-009, which the current hub cannot settle.
+   */
+  merchant_wallet: string | null
 }
 
 export interface CreatePaymentIntentParams {

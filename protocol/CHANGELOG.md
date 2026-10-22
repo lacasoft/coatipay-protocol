@@ -18,6 +18,8 @@ now depends on the merchant's wallet. Use it with the new deployment only.
   `ref`, and its rejected cases add a zero and a malformed wallet;
   `autorizacion.json` inputs carry `merchant`.
 - `PROTOCOL_VERSION` is `'0.2'`.
+- **`PaymentIntent.merchant_wallet`** (required, nullable): the wallet the
+  payment goes to, fixed at creation; what `intentIdOf` needs.
 
 ### Added
 
