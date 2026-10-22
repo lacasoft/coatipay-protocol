@@ -7,7 +7,8 @@
 > multisig (pasa a ser un contrato propio, §4); el `setMinStake` de
 > `NodeRegistry` que solo sube, tal como lo describe ADR-008 (§5).
 > **Exige**: un despliegue nuevo de los tres contratos y de uno más
-> (`IntentSignerGate`). Las comisiones no cambian.
+> (`IntentSignerGate`), y versiones nuevas de la API, el nodeit, el checkout y
+> los SDK. Las comisiones no cambian.
 
 ## Contexto
 
@@ -70,43 +71,57 @@ El reparto pasa a ser *pull* para operador y tesorería:
   cada pago, lo liquide el nodeit que lo liquide. Si la bloquean, los pagos siguen
   y su comisión queda acreditada; **no se puede redirigir** (principio 1), y se
   cobra cuando la desbloqueen.
+- No hay forma de cobrar hacia otra dirección: una cuenta que Circle tenga
+  bloqueada no puede desviar su saldo a otra, y cobra cuando la desbloqueen.
 - `IntentSettled` no cambia: el reconciliador de la API sigue leyendo lo mismo.
   Se añade `FeesClaimed(cuenta, importe)`.
 - Las comisiones no cambian: 150 bps, 105 al operador y 45 a la tesorería.
 
-De paso, el pago cuesta menos gas: dos escrituras en el almacenamiento del hub en
-vez de dos transferencias de USDC, y en un lote el saldo de un mismo operador se
-acumula.
+El gas, medido contra el USDC real en una bifurcación de Base Sepolia: con el
+operador ya acreditado, un pago cuesta **53.9k** en vez de 84.1k (−36%), porque
+anota dos saldos en el hub en vez de hacer dos transferencias de USDC. El primer
+pago de un operador nuevo cuesta 175k en vez de 164k (sus casillas pasan de cero
+a no cero), y cada cobro, unos 60k: con dos pagos por cobro ya sale más barato.
 
 ### 2. Un registro inválido no hunde el lote
 
 `registerIntentBatch` salta lo que no pasa, como ya hace el lote de pagos: cada
 registro se intenta por separado (llamada a sí mismo con `try/catch`), lo que
-falla se salta con un evento `IntentRegistrationSkipped(intentId)` y el resto se
-registra. `registerIntent`, de uno en uno, sigue revirtiendo. El nodeit conserva
+falla se salta con un evento `IntentRegistrationSkipped(intentId, motivo)` —el
+error con que revirtió— y el resto se registra. Lo ya registrado se sigue saltando
+en silencio (es el reintento normal de un lote), y lo que afecta a todos —la pausa—
+sigue revirtiendo el lote entero. `registerIntent`, de uno en uno, sigue revirtiendo. El nodeit conserva
 su aislamiento como segunda línea.
 
 ### 3. El `intentId` lleva dentro al comercio
 
-El hub exige `intentId == keccak256(abi.encode(merchant, ref))`, donde `ref` es
-el identificador del cobro fuera de la cadena (hoy `keccak256("pi_…")`). El
-registro firmado incluye `ref`.
+El `intentId` es `keccak256(abi.encode(merchant, ref))`, donde `ref` es el
+identificador del cobro fuera de la cadena: `keccak256("pi_…")`, lo que hoy es el
+`intentId` entero. El registro lleva `ref` y no el `intentId`: lo calcula el hub
+(`intentIdOf`), y la firma de `intentSigner` cubre ese `intentId` calculado. Un
+registro no puede traer un id que no corresponda a su comercio.
 
 Como el pagador firma `nonce == intentId`, **su firma fija el comercio**: ni
 quien controle `intentSigner` puede registrar ese `intentId` con otro comercio
 para quedarse un pago ya firmado. El operador no entra en el `intentId`: se
 decide cuando un nodeit toma el trabajo, después de que el pagador firme, y lo
 fija el registro firmado. Lo que podría desviar quien controle `intentSigner` es
-esa comisión del 1.05%, nunca el pago del comercio. Cambia cómo se calcula el
-`intentId` en la API, el nodeit, el checkout y los SDK (ver «Consumidores que
-cambian»).
+esa comisión del 1.05%, nunca el pago del comercio.
+
+Calcular el nonce exige conocer la cartera del comercio. La API la tiene que
+exponer a quien firma (checkout y SDK), y eso da algo que antes no había: quien
+firma puede comprobar a qué cartera ata su firma. El cálculo vive en el paquete
+del protocolo (`intentIdOf`) con vectores, y las pruebas de los contratos leen esos
+vectores y exigen que el hub dé cada uno.
 
 ### 4. `intentSigner` es un contrato propio, con la clave caliente rotable
 
 Un contrato nuevo, `IntentSignerGate`, es el `intentSigner` del hub:
 
-- Implementa ERC-1271: una firma vale si la recupera la **clave caliente** de la
-  API (`signer`). La API sigue firmando cada registro sola, sin coordinar a nadie.
+- Implementa ERC-1271: una firma vale si es de la **clave caliente** de la API
+  (`signer`), sobre el digest EIP-712 del hub tal cual, sin envoltorio. La API
+  sigue firmando cada registro sola, sin coordinar a nadie. `signer` puede ser a
+  su vez un contrato ERC-1271 (una clave en un servicio de custodia, por ejemplo).
 - Solo `admin` —un multisig frío, en mainnet— puede cambiar `signer`, al
   instante. Una clave robada se retira sin redesplegar el hub, y la clave caliente
   **no puede** rotarse a sí misma ni cambiar el admin: quien la robe no puede
@@ -129,15 +144,18 @@ cada pago) y seguir con el Safe 1-de-1 (cualquier dueño puede echar a los demá
   irse).
 - `cancelMinStakeProposal()` (guardian).
 
-Puede bajar: un error se corrige proponiendo el valor anterior. Una llave robada
-se ve venir una semana antes y se cancela rotando el guardian. El vigía de la API
-avisa de cualquier propuesta pendiente.
+Puede bajar: un error se corrige proponiendo el valor anterior. Una propuesta
+nueva sustituye a la pendiente y su plazo vuelve a empezar: no hay forma de
+acortar el aviso. Cero no se admite, ni al desplegar: dejaría entrar a cualquiera
+sin stake. Una llave robada se ve venir una semana antes y se cancela rotando el
+guardian. El vigía de la API avisa de cualquier propuesta pendiente.
 
 ### 6. El guardian se transfiere en dos pasos
 
 `transferGuardian(nuevo)` lo deja pendiente y `acceptGuardian()`, llamado por el
 nuevo, lo hace efectivo. Una dirección mal escrita nunca acepta, y el guardian
-sigue siendo el anterior. Lo mismo para el `admin` de `IntentSignerGate`.
+sigue siendo el anterior, con todos sus poderes, hasta que alguien acepte.
+`transferGuardian(0)` cancela. Lo mismo para el `admin` de `IntentSignerGate`.
 
 ### 7. La pausa no atrapa fondos, y se documenta lo que hace
 
@@ -150,21 +168,37 @@ sigue siendo el anterior. Lo mismo para el `admin` de `IntentSignerGate`.
 
 ### 8. Lo que llega por error tiene salida
 
-- Hub: `sweepSurplus()` envía a la tesorería el USDC que no esté acreditado a
-  nadie (`balanceOf(hub) − totalAccrued`). `sweepToken(token)` hace lo mismo con
-  cualquier otro token. Los dos los puede llamar cualquiera: el destino es fijo.
+- Hub: `sweepSurplus()` **acredita** a la tesorería el USDC que no esté
+  acreditado a nadie (`balanceOf(hub) − totalAccrued`), y sale con
+  `claimFor(treasury)`: así no hay un segundo camino de salida que pueda fallar.
+  `sweepToken(token)` envía a la tesorería todo el saldo de cualquier otro token
+  (con `SafeERC20`). El hub no acepta ETH: no tiene `receive`.
 - StakeManager: lleva la cuenta de lo depositado y lo que está saliendo
-  (`totalHeld`) y `sweepSurplus()` envía el resto a la tesorería, que pasa a ser
-  un parámetro inmutable también aquí, solo para esto.
+  (`totalHeld`); `sweepSurplus()` envía el resto a la tesorería, que pasa a ser
+  un parámetro inmutable también aquí, solo para esto, y `sweepToken(token)` hace
+  lo mismo que en el hub.
 
-Ninguno puede tocar lo acreditado ni el stake de nadie: solo lo que sobra.
+Ninguno puede tocar lo acreditado ni el stake de nadie: solo lo que sobra. Todos
+los puede llamar cualquiera: el destino es fijo.
 
 ### 9. Guardas de despliegue para mainnet
 
 `Deploy.s.sol`, en la red principal de Base (`chainid` 8453), exige que la
-tesorería, el guardian y el `admin` de `IntentSignerGate` sean contratos (un
-multisig), y despliega el propio `IntentSignerGate`. En testnet admite carteras
-sueltas, como hoy.
+tesorería, el guardian y el `admin` de `IntentSignerGate` sean un multisig y que
+el USDC sea el de Circle, y despliega el propio `IntentSignerGate`. «Un multisig»
+es lo más que se puede comprobar desde el script: un contrato de verdad —no una
+cartera con delegación EIP-7702, que tiene «código» y sigue siendo una sola clave
+(pasó al ensayar el script contra Base mainnet)— y, si responde como un Safe, con
+umbral de 2 o más: un Safe 1-de-1 es una sola clave. En cualquier red, la clave caliente no puede ser su propio
+admin ni coincidir con el desplegador, el guardian o la tesorería. En testnet
+admite carteras sueltas, como hoy.
+
+### Lo que se aprovecha del redespliegue
+
+`NodeRegistry` gana `activeNodeCount()` y `getActiveNodesPage(desde, cuántos)`
+(revisión de octubre, OCT-13): la lista de nodos activos crece con los nodeits, y
+leerla entera en una sola llamada dejaría de ser posible. `getActiveNodes()` se
+mantiene.
 
 ### 10. Cómo se evoluciona
 
@@ -199,12 +233,12 @@ se puede reclamar siempre: un hub retirado no retiene dinero de nadie.
 
 | Dónde | Qué |
 |---|---|
-| `coatipay-protocol/contracts` | Los cuatro contratos, `Deploy.s.sol`, pruebas, invariantes y las pruebas de concepto de la revisión como regresión |
-| `coatipay-protocol/protocol` | Constantes generadas (`MIN_STAKE_DELAY`), el cálculo del `intentId`, el registro con `ref`, vectores para los SDK; versión 0.2.0 |
-| API | El cálculo y guardado del `on_chain_id`, la firma del registro (directa, sin el envoltorio de Safe), el preflight (`signer` del gate = clave de la API), el vigía (propuestas de `minStake`, saldo acreditado de la tesorería), una tarea que barre lo de la tesorería |
-| Nodeit | El `intentId` que da la API en vez de calcularlo, el ABI nuevo, `claim()` periódico de su comisión |
-| Checkout | El `nonce` que firma el pagador |
-| SDK (JS, Python, PHP) | El cálculo del `intentId` y la autorización ERC-3009; versiones nuevas |
+| `coatipay-protocol/contracts` | Los cuatro contratos, `Deploy.s.sol`, `E2EFlow.s.sol`, pruebas, invariantes y las pruebas de concepto de la revisión como regresión |
+| `coatipay-protocol/protocol` | Constantes generadas (`MIN_STAKE_DELAY`, el tipo y el dominio EIP-712 del registro), `intentRef`/`intentIdOf`, vectores en formato 2; versión 0.2.0 |
+| API | El `on_chain_id` con la cartera del comercio; exponer esa cartera (o el `on_chain_id`) a quien firma; el registro con `ref` y firmado directo con la clave caliente (sin el envoltorio de Safe); el preflight (`signer` del gate = clave de la API); el vigía (propuestas de `minStake`, lo acreditado a la tesorería, el `signer` del gate); una tarea que barre lo de la tesorería con `claimFor` |
+| Nodeit | El registro con `ref` (el `intentId` lo da la API), el ABI nuevo, leer `IntentRegistrationSkipped`, `claim()` periódico de su comisión |
+| Checkout | El `nonce` que firma el pagador: `intentIdOf(cartera del comercio, id)` |
+| SDK (JS, Python, PHP) | El mismo cálculo y los vectores en formato 2; versiones nuevas |
 | Docs | PROTOCOL, INFRASTRUCTURE, SECURITY, el README del protocolo y de `coatipay-node`, la landing, y SCOPE |
 
 ## Migración en Base Sepolia
@@ -232,4 +266,8 @@ El cambio se da por bueno cuando hay pruebas de que:
 - `minStake` no cambia antes del plazo, y se puede cancelar;
 - un guardian mal escrito no se queda con nada;
 - con StakeManager en pausa se puede retirar;
-- el rescate solo mueve lo que sobra.
+- el rescate solo mueve lo que sobra;
+- el hub calcula el mismo `intentId` que los vectores de los SDK (la prueba lee
+  `protocol/vectors/nonce.json`);
+- las pruebas detectan cada arreglo deshecho (mutaciones), y Slither no encuentra
+  nada sin justificar.
