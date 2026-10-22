@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_INTENT_TTL_SECONDS,
   MAX_EXPIRY_OFFSET,
+  MIN_STAKE_DELAY,
   STAKE_WITHDRAWAL_TIMELOCK_DAYS,
   WITHDRAWAL_TIMELOCK,
 } from '../src'
@@ -18,6 +19,12 @@ describe('constants taken from the contracts', () => {
 
   it('the expiry limit is in seconds: 30 days', () => {
     expect(MAX_EXPIRY_OFFSET).toBe(30 * 24 * 60 * 60)
+  })
+
+  // ADR-009 §5: el aviso de un cambio de minStake es el mismo plazo que un
+  // retiro, para que un nodeit que queda por debajo pueda reponer o irse.
+  it('a minStake change gives the same notice as a stake withdrawal', () => {
+    expect(MIN_STAKE_DELAY).toBe(WITHDRAWAL_TIMELOCK)
   })
 
   it('the withdrawal timelock in days is derived from the contract, in whole days', () => {

@@ -1,5 +1,5 @@
 {
-  "formato": 1,
+  "formato": 2,
   "descripcion": "Verificación de la cabecera X-Signature (t=<segundos>,v1=<hex>): partes separadas por comas (se ignoran los espacios alrededor), cada una clave=valor; un solo t, solo dígitos; al menos un v1; otras claves se ignoran. Vale si |ahora − t| ≤ tolerancia (300 s por defecto, límite incluido) y el HMAC-SHA256 del secreto sobre \"<t>.<cuerpo>\", en hex minúsculas, coincide con CUALQUIER v1. Orden: formato, tolerancia, firma. Motivos: malformed_header, timestamp_out_of_tolerance, no_matching_signature.",
   "secreto": "whsec_vector_de_prueba",
   "ahora": 1790000000,

@@ -516,7 +516,7 @@ npm run node:start
 ## Apéndice B — Constantes del protocolo
 
 ```
-PROTOCOL_VERSION         = "0.1"
+PROTOCOL_VERSION         = "0.2"
 USDC_BASE_ADDRESS        = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 USDC_DECIMALS            = 6
 minStake (mainnet)       = 100,000,000   (100 USDC) — initial value at deploy
