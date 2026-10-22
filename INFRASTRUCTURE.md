@@ -173,7 +173,7 @@ El primer deploy de Fase B5 en testnet se completó en **Base Sepolia (chainId 8
 
 ### Principios de diseño
 
-- **No actualizables:** Sin patrones proxy y sin admin keys que muevan fondos — nadie puede mover fondos ni reescribir estado. **Sí** existe una pausa de emergencia (la base `Pausable` compartida) controlada por un guardian (un multisig 3-de-5, no una sola key), que bloquea el registro y las operaciones de nueva escritura pero no detiene settlements en vuelo; el guardian lo mantiene la Fundación (sin migración a gobernanza on-chain comprometida). Lo que se audita es lo que corre. Si un bug requiere una corrección, la respuesta correcta es un nuevo despliegue con una ruta de migración aprobada por RFC.
+- **No actualizables:** Sin patrones proxy y sin admin keys que muevan fondos — nadie puede mover fondos ni reescribir estado. **Sí** existe una pausa de emergencia (la base `Pausable` compartida) controlada por un guardian (en mainnet, un multisig —previsto de 3-de-5—, no una sola key; hoy, en testnet, una sola cartera). Bloquea el registro y las operaciones de nueva escritura: como cada pago se registra al liquidarse, pausar el hub detiene también los pagos aún no liquidados, y pausar StakeManager congela depósitos y retiros de stake mientras dure. El guardian lo mantiene la Fundación (sin migración a gobernanza on-chain comprometida). Lo que se audita es lo que corre. Si un bug requiere una corrección, la respuesta correcta es un nuevo despliegue con una ruta de migración aprobada por RFC.
 - **Superficie mínima:** Cada contrato hace exactamente una cosa. Sin preocupaciones cruzadas.
 - **Denominado en USDC:** Todo el stake y los fees son en USDC. Sin token de protocolo.
 - **Orientado a eventos:** Todos los cambios de estado emiten eventos. El routing engine off-chain y el node daemon dependen de los event logs, no de polling.
@@ -266,8 +266,10 @@ que pueda tocar el dinero.
   `from` arbitrario, así que ninguna de las tres puede tocar el stake ajeno
 - No existe `depositFor()`: `NodeRegistry` no proxea transferencias de USDC —
   comprueba el stake ya depositado vía `getStakeInfo()` (least-privilege)
-- El guardian solo puede **pausar** (las tres funciones son `whenNotPaused`).
-  Ni siquiera pausado puede mover el stake de nadie
+- El guardian no puede mover el stake de nadie, ni siquiera con el contrato en
+  pausa; pero mientras dure la pausa nadie puede depositar ni retirar (las tres
+  funciones son `whenNotPaused`). Además de pausar, puede subir `minStake` en
+  `NodeRegistry` (nunca bajarlo) y transferir su propio rol
 
 ---
 
@@ -941,7 +943,7 @@ La asignación del treasury la decide la Fundación; el balance es públicamente
 **Ataque Sybil (muchos nodes falsos)**
 
 *Amenaza:* Crear cientos de nodes de baja calidad para capturar volumen de routing.
-*Mitigación:* El stake mínimo de 100 USDC por node hace los ataques Sybil costosos ($100 por node). Un node con stake mínimo tiene `stake_weight = 0.01` — necesitaría uptime y velocidad muy altos para competir con nodes bien stakeados. En 100 nodes falsos, el ataque cuesta $10,000 en USDC bloqueado.
+*Mitigación:* El stake mínimo (100 USDC previstos en mainnet; 40 en Sepolia) hace los ataques Sybil costosos ($100 por node en mainnet). Un node con stake mínimo tiene `stake_weight = 0.01` — necesitaría uptime y velocidad muy altos para competir con nodes bien stakeados. En 100 nodes falsos, el ataque cuesta $10,000 en USDC bloqueado.
 
 **Compromiso de la key del comercio**
 
@@ -1285,7 +1287,7 @@ Estas son las propiedades que CoatiPay garantiza a todos los participantes. Debe
 
 ### Para el protocolo
 
-1. No existe admin key que pueda mover fondos, actualizar o reescribir el estado de los contratos desplegados. La única acción privilegiada es una **pausa de emergencia** (la base `Pausable`) en manos de un guardian multisig 3-de-5 — bloquea el registro y las nuevas escrituras pero no puede mover fondos, detener settlements en vuelo, ni cambiar las reglas
+1. No existe admin key que pueda mover fondos, actualizar o reescribir el estado de los contratos desplegados. Las acciones privilegiadas son la **pausa de emergencia** (la base `Pausable`), subir `minStake` (nunca bajarlo) y transferir el rol, todas en manos del guardian: en mainnet, un multisig —previsto de 3-de-5—; hoy, en testnet, una sola cartera. Ninguna puede mover fondos ni cambiar las reglas; la pausa sí detiene, mientras dura, los pagos aún no liquidados y los retiros de stake
 2. El fee split (70/30 nodeit/treasury, 150 bps total — ver ADR-002, revisado en ADR-005) está codificado en el protocolo (`SettlementHub.sol` constants) y no puede cambiarse sin un nuevo despliegue
 3. El stake mínimo (`minStake`) es una variable de estado ajustable por el guardian vía `NodeRegistry.setMinStake()`, pero el contrato **rechaza reducciones** — solo incrementos. Esto permite que la red aumente la barrera anti-Sybil conforme madura (valor inicial: 100 USDC en mainnet, 40 USDC en Sepolia testnet) sin invalidar a operadores ya registrados.
 4. Todos los registros de nodes son sin permisos — ningún comité de whitelist puede bloquear a un node de unirse

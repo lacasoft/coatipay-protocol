@@ -201,7 +201,7 @@ sum once — which is on the roadmap (see ADR-002; ADR-005 for the move to 150 b
 
 Three smart contracts on Base define the protocol rules: `NodeRegistry`, `StakeManager`, and `SettlementHub`. All are **non-upgradeable** (no proxy patterns) — the rules cannot change after deploy.
 
-**On pause and the guardian:** the contracts have NO arbitrary admin keys (no one can move funds or rewrite state), but they **do have an emergency pause** via a `Pausable` base controlled by a guardian. The pause only gates *registration* and *new-write* operations (e.g. `register`, `registerIntent`) — it does **not** stop in-flight settlements. The guardian is a **3-of-5 multisig**, never a single key, held by the Foundation (no migration to on-chain governance is committed). This is a deliberate design choice: an exploit found post-deploy with no pause mechanism means total loss for those affected; the pragmatic compromise is pause-governed-by-multisig, not absence of pause. (See `audits/adr/` and whitepaper §3.2 for the full reasoning.)
+**On pause and the guardian:** the contracts have NO arbitrary admin keys (no one can move funds or rewrite state), but they **do have an emergency pause** via a `Pausable` base controlled by a guardian. The pause gates *registration* and *new-write* operations (e.g. `register`, `registerIntent`). Since every payment is registered on-chain when it settles, pausing the hub also stops payments the payer already signed that have not settled yet; pausing StakeManager blocks stake deposits and withdrawals while it lasts. Pausing moves no one's funds. On mainnet the guardian will be a **multisig** —3-of-5 planned—, never a single key, held by the Foundation (no migration to on-chain governance is committed); today, on testnet, it is a single wallet. This is a deliberate design choice: an exploit found post-deploy with no pause mechanism means total loss for those affected; the pragmatic compromise is pause-governed-by-multisig, not absence of pause. (See `audits/adr/` and whitepaper §3.2 for the full reasoning.)
 
 ### 4.1 NodeRegistry.sol
 
@@ -229,7 +229,7 @@ function getActiveNodes() external view returns (address[] memory);
 - **Mainnet:** 100 USDC (100,000,000 micro-units) — the protocol's anti-Sybil floor
 - **Sepolia testnet:** 40 USDC (40,000,000 micro-units) — lowered initial value to ease onboarding with faucets
 
-The guardian can raise `minStake` via `NodeRegistry.updateMinStake(uint256)` as the network matures. The contract **rejects decreases** — increase-only. This lets the Sybil floor rise without invalidating existing operators' stakes.
+The guardian can raise `minStake` via `NodeRegistry.setMinStake(uint256)` as the network matures. The contract **rejects decreases** — increase-only. This lets the Sybil floor rise without invalidating existing operators' stakes.
 
 ### 4.2 StakeManager.sol
 

@@ -198,7 +198,7 @@ tx) — está en la hoja de ruta, no implementado hoy. Ver ADR-002 para el anál
 
 Tres smart contracts en Base definen las reglas del protocolo: `NodeRegistry`, `StakeManager` y `SettlementHub`. Todos son **no actualizables** (sin patrones proxy) — las reglas no se pueden cambiar después del deploy.
 
-**Sobre pausa y guardian:** los contratos NO tienen admin keys arbitrarias (nadie puede mover fondos ni reescribir estado), pero **sí tienen una pausa de emergencia** vía un `Pausable` base controlado por un guardian. La pausa solo gatea operaciones de *registro* y *escritura nueva* (p. ej. `register`, `registerIntent`) — **no** detiene liquidaciones en vuelo. El guardian es un **multisig 3-de-5**, nunca una llave única, mantenido por la Fundación (sin migración a gobernanza on-chain comprometida). Esta es una decisión de diseño deliberada: un exploit descubierto post-deploy sin mecanismo de pausa significa pérdida total para los afectados; el compromiso pragmático es pausa-gobernada-por-multisig, no ausencia de pausa. (Ver `audits/adr/` y el whitepaper §3.2 para el razonamiento completo.)
+**Sobre pausa y guardian:** los contratos NO tienen admin keys arbitrarias (nadie puede mover fondos ni reescribir estado), pero **sí tienen una pausa de emergencia** vía un `Pausable` base controlado por un guardian. La pausa gatea operaciones de *registro* y *escritura nueva* (p. ej. `register`, `registerIntent`). Como cada pago se registra on-chain al liquidarse, pausar el hub detiene también los pagos que el pagador ya firmó y aún no se liquidaron; pausar StakeManager impide depositar y retirar stake mientras dure. Pausar no mueve fondos de nadie. En mainnet el guardian será un **multisig** —previsto de 3-de-5—, nunca una llave única, mantenido por la Fundación (sin migración a gobernanza on-chain comprometida); hoy, en testnet, es una sola cartera. Esta es una decisión de diseño deliberada: un exploit descubierto post-deploy sin mecanismo de pausa significa pérdida total para los afectados; el compromiso pragmático es pausa-gobernada-por-multisig, no ausencia de pausa. (Ver `audits/adr/` y el whitepaper §3.2 para el razonamiento completo.)
 
 ### 4.1 NodeRegistry.sol
 
@@ -226,7 +226,7 @@ function getActiveNodes() external view returns (address[] memory);
 - **Mainnet:** 100 USDC (100,000,000 micro-unidades) — valor anti-Sybil del protocolo
 - **Sepolia testnet:** 40 USDC (40,000,000 micro-unidades) — inicial reducido para facilitar onboarding con faucets
 
-El guardian puede aumentar `minStake` vía `NodeRegistry.updateMinStake(uint256)` conforme la red madura. El contrato **rechaza reducciones** — solo incrementos. Esto permite subir la barrera anti-Sybil sin comprometer a operadores ya registrados (su stake existente sigue válido).
+El guardian puede aumentar `minStake` vía `NodeRegistry.setMinStake(uint256)` conforme la red madura. El contrato **rechaza reducciones** — solo incrementos. Esto permite subir la barrera anti-Sybil sin comprometer a operadores ya registrados (su stake existente sigue válido).
 
 ### 4.2 StakeManager.sol
 
