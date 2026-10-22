@@ -47,6 +47,11 @@ export interface CreatePaymentIntentParams {
   currency: Currency
   chain: Chain | 'auto'
   metadata?: Record<string, string>
+  /**
+   * Seconds until the intent expires. Default 1800 (30 min). It must stay
+   * below `MAX_EXPIRY_OFFSET` (30 days): `SettlementHub` refuses to register
+   * an intent that expires later, so an API rejects a longer one.
+   */
   expires_in?: number
   idempotency_key?: string
 }
