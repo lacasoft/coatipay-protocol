@@ -19,6 +19,11 @@ import {MockUSDCAuth} from "./mocks/MockUSDCAuth.sol";
 ///
 ///         Estos tests comprueban que esa configuración funciona de verdad, no
 ///         que el código compile.
+///
+///         Desde ADR-009 §4 el firmante de producción es `IntentSignerGate`
+///         (clave caliente rotable por un admin frío; ver sus propios tests).
+///         El hub sigue aceptando cualquier contrato ERC-1271, y estos tests lo
+///         comprueban con un multisig.
 contract SettlementHubMultisigSignerTest is Test {
     SettlementHub hub;
     MockUSDCAuth usdc;
@@ -34,6 +39,7 @@ contract SettlementHubMultisigSignerTest is Test {
     uint256 constant KEY_C = 0xC3;
     uint256 constant KEY_INTRUSO = 0xDEAD;
 
+    /// Referencia del cobro; el `intentId` lo calcula el hub (ADR-009 §3).
     bytes32 constant INTENT = keccak256("pi_multisig_001");
     uint256 constant AMOUNT = 1_000_000_000;
     uint64 expiresAt;
@@ -55,15 +61,18 @@ contract SettlementHubMultisigSignerTest is Test {
 
     // ── Helpers ───────────────────────────────────────────────
 
-    function _digest(bytes32 intentId) internal view returns (bytes32) {
-        bytes32 structHash =
-            keccak256(abi.encode(hub.REGISTER_INTENT_TYPEHASH(), intentId, merchant, operator, AMOUNT, expiresAt));
+    function _digest(bytes32 ref) internal view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                hub.REGISTER_INTENT_TYPEHASH(), hub.intentIdOf(merchant, ref), merchant, operator, AMOUNT, expiresAt
+            )
+        );
         return keccak256(abi.encodePacked("\x19\x01", hub.DOMAIN_SEPARATOR(), structHash));
     }
 
     /// Concatena firmas ordenadas por dirección ascendente, como exige el mock.
-    function _sign(uint256[] memory keys, bytes32 intentId) internal view returns (bytes memory blob) {
-        bytes32 digest = _digest(intentId);
+    function _sign(uint256[] memory keys, bytes32 ref) internal view returns (bytes memory blob) {
+        bytes32 digest = _digest(ref);
         // Ordenación por dirección (burbuja: son tres elementos como mucho).
         for (uint256 i = 0; i < keys.length; i++) {
             for (uint256 j = i + 1; j < keys.length; j++) {
@@ -78,18 +87,9 @@ contract SettlementHubMultisigSignerTest is Test {
         }
     }
 
-    function _reg(bytes32 intentId, bytes memory signature)
-        internal
-        view
-        returns (SettlementHub.IntentRegistration memory)
-    {
+    function _reg(bytes32 ref, bytes memory signature) internal view returns (SettlementHub.IntentRegistration memory) {
         return SettlementHub.IntentRegistration({
-            intentId: intentId,
-            merchant: merchant,
-            operator: operator,
-            amount: AMOUNT,
-            expiresAt: expiresAt,
-            signature: signature
+            ref: ref, merchant: merchant, operator: operator, amount: AMOUNT, expiresAt: expiresAt, signature: signature
         });
     }
 
@@ -104,7 +104,7 @@ contract SettlementHubMultisigSignerTest is Test {
     function test_MultisigAlcanzandoElUmbralRegistra() public {
         hub.registerIntent(_reg(INTENT, _sign(_keys2(KEY_A, KEY_B), INTENT)));
 
-        SettlementHub.Intent memory intent = hub.getIntent(INTENT);
+        SettlementHub.Intent memory intent = hub.getIntent(hub.intentIdOf(merchant, INTENT));
         assertEq(intent.merchant, merchant, "el comercio queda registrado");
         assertEq(uint256(intent.amount), AMOUNT, "importe correcto");
     }
@@ -144,7 +144,7 @@ contract SettlementHubMultisigSignerTest is Test {
         // Las dos llaves sanas siguen autorizando contra el MISMO hub.
         bytes32 otro = keccak256("pi_multisig_002");
         hub.registerIntent(_reg(otro, _sign(_keys2(KEY_A, KEY_B), otro)));
-        assertEq(hub.getIntent(otro).merchant, merchant, "sigue operativo tras la rotacion");
+        assertEq(hub.getIntent(hub.intentIdOf(merchant, otro)).merchant, merchant, "sigue operativo tras la rotacion");
 
         // Y la llave retirada ya no cuenta para el umbral.
         bytes32 tercero = keccak256("pi_multisig_003");
@@ -161,12 +161,20 @@ contract SettlementHubMultisigSignerTest is Test {
         uint256 clave = 0xE0A;
         SettlementHub hubEoa = new SettlementHub(address(usdc), treasury, guardian, vm.addr(clave));
 
-        bytes32 structHash =
-            keccak256(abi.encode(hubEoa.REGISTER_INTENT_TYPEHASH(), INTENT, merchant, operator, AMOUNT, expiresAt));
+        bytes32 structHash = keccak256(
+            abi.encode(
+                hubEoa.REGISTER_INTENT_TYPEHASH(),
+                hubEoa.intentIdOf(merchant, INTENT),
+                merchant,
+                operator,
+                AMOUNT,
+                expiresAt
+            )
+        );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", hubEoa.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(clave, digest);
 
         hubEoa.registerIntent(_reg(INTENT, abi.encodePacked(r, s, v)));
-        assertEq(hubEoa.getIntent(INTENT).merchant, merchant, "la ruta EOA no se rompe");
+        assertEq(hubEoa.getIntent(hubEoa.intentIdOf(merchant, INTENT)).merchant, merchant, "la ruta EOA no se rompe");
     }
 }

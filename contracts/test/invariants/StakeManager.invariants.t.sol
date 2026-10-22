@@ -19,11 +19,12 @@ contract StakeManagerInvariants is Test {
     StakeManagerHandler public handler;
 
     address public constant GUARDIAN = address(0xDEAD);
+    address public constant TREASURY = address(0xC0FFEE);
 
     function setUp() public {
         usdc = new MockUSDC();
-        stakeManager = new StakeManager(address(usdc), GUARDIAN);
-        handler = new StakeManagerHandler(stakeManager, usdc);
+        stakeManager = new StakeManager(address(usdc), GUARDIAN, TREASURY);
+        handler = new StakeManagerHandler(stakeManager, usdc, GUARDIAN);
 
         // Tell the invariant runner: only call the handler's public fns
         // when generating random sequences. Without this, the runner would
@@ -59,6 +60,8 @@ contract StakeManagerInvariants is Test {
     // Sin slashing (ADR-004) el stake solo tiene dos destinos: sigue en el
     // contrato a nombre de su dueño, o volvió al nodeit. Ninguna otra parte
     // puede sacarlo, así que la conservación es exacta, no una desigualdad.
+    // Lo único que sale hacia la tesorería es lo que llegó por error
+    // (ADR-009 §8), y `totalHeld` es exactamente la suma de los stakes.
 
     function invariant_usdcConservation() public view {
         uint256 sumOfStakes = 0;
@@ -73,8 +76,23 @@ contract StakeManagerInvariants is Test {
         uint256 deposited = handler.ghost_totalDeposited();
         uint256 withdrawn = handler.ghost_totalWithdrawn();
 
-        assertEq(inContract, sumOfStakes, "el saldo del contrato no cuadra con la suma de stakes");
+        assertEq(
+            inContract,
+            sumOfStakes + handler.ghost_donated() - handler.ghost_swept(),
+            "el saldo del contrato no cuadra con stakes + lo enviado por error - lo rescatado"
+        );
         assertEq(deposited, sumOfStakes + withdrawn, "no cuadra la contabilidad del USDC");
+        assertEq(stakeManager.totalHeld(), sumOfStakes, "totalHeld no es la suma de los stakes");
+        assertEq(usdc.balanceOf(TREASURY), handler.ghost_swept(), "la tesoreria recibio algo que no sobraba");
+    }
+
+    // ── Invariante 4: la pausa no retiene el stake de nadie ──
+    //
+    // ADR-009 §7: con el contrato en pausa, un retiro cuyo plazo venció se
+    // ejecuta igual.
+
+    function invariant_pauseNeverBlocksAMaturedWithdrawal() public view {
+        assertFalse(handler.ghost_maturedWithdrawalFailed(), "a matured withdrawal failed");
     }
 
     // ── Invariant 5: USDC reference immutable ────────────────

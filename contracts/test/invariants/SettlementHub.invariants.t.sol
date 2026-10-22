@@ -26,49 +26,75 @@ contract SettlementHubInvariants is Test, IntentSigning {
         targetContract(address(handler));
     }
 
-    // ── Invariant 1: contract holds zero USDC outside of a tx ────
+    // ── Invariant 1: the hub always covers what it owes ──────────
     //
-    // The hub is a pass-through: pull from payer + 3 transfers within the
-    // same tx, atomically. After every settled or cancelled tx, the
-    // contract's USDC balance must be zero.
+    // Since ADR-009 the hub keeps the operator and treasury fees until they
+    // are claimed. It must never hold less than it has credited; what it holds
+    // above that arrived by mistake and is what `sweepSurplus` moves.
 
-    function invariant_contractHoldsZeroUsdcAtRest() public view {
-        assertEq(usdc.balanceOf(address(hub)), 0, "Hub holds USDC between txs");
+    function invariant_hubCoversWhatItOwes() public view {
+        assertGe(usdc.balanceOf(address(hub)), hub.totalAccrued(), "hub holds less than it credited");
     }
 
-    // ── Invariant 2: split sums match settlement totals ──────────
+    // ── Invariant 1b: exact accounting of the hub's USDC ─────────
     //
-    // For every settlement, merchant + operator + treasury receive exactly
-    // the payment amount. Aggregated: total received by all parties equals
-    // total paid in by payers.
+    // balance = fees credited + USDC sent by mistake - everything claimed
+    // owed    = fees credited + surplus swept to treasury - everything claimed
+
+    function invariant_hubBalanceAccounted() public view {
+        assertEq(
+            usdc.balanceOf(address(hub)),
+            handler.ghost_feesCredited() + handler.ghost_donated() - handler.ghost_claimed(),
+            "hub balance does not match credits + donations - claims"
+        );
+        assertEq(
+            hub.totalAccrued(),
+            handler.ghost_feesCredited() + handler.ghost_swept() - handler.ghost_claimed(),
+            "totalAccrued does not match credits + sweeps - claims"
+        );
+    }
+
+    // ── Invariant 1c: totalAccrued is the sum of every account ───
+    //
+    // Only operators and the treasury are ever credited; merchants are paid
+    // at once.
+
+    function invariant_totalAccruedIsTheSum() public view {
+        uint256 sum = hub.accrued(TREASURY);
+        for (uint256 i = 0; i < handler.operatorsLength(); i++) {
+            sum += hub.accrued(handler.operators(i));
+        }
+        assertEq(hub.totalAccrued(), sum, "totalAccrued != sum of accrued");
+        for (uint256 i = 0; i < handler.merchantsLength(); i++) {
+            assertEq(hub.accrued(handler.merchants(i)), 0, "a merchant was credited instead of paid");
+        }
+    }
+
+    // ── Invariant 2: every party gets exactly its share ──────────
+    //
+    // Merchants are paid at once; the treasury has, between what it claimed
+    // and what is still credited to it, exactly its share of every payment
+    // plus the surplus swept to it.
 
     function invariant_splitSumsToSettlementTotal() public view {
-        // Treasury balance must equal cumulative treasury share.
+        uint256 paidToMerchants;
+        for (uint256 i = 0; i < handler.merchantsLength(); i++) {
+            paidToMerchants += usdc.balanceOf(handler.merchants(i));
+        }
+        assertEq(paidToMerchants, handler.ghost_totalSettledMerchant(), "merchants not paid exactly their share");
+
         assertEq(
-            usdc.balanceOf(TREASURY),
-            handler.ghost_totalSettledTreasury(),
-            "Treasury balance != cumulative treasury share"
+            usdc.balanceOf(TREASURY) + hub.accrued(TREASURY),
+            handler.ghost_totalSettledTreasury() + handler.ghost_swept(),
+            "treasury got more or less than its share"
         );
 
-        // For merchants and operators we can't easily aggregate (many
-        // addresses), but we can assert the global identity:
-        // total settled (merchant + operator + treasury) == sum of all
-        // amounts paid by payers.
-        // Since the handler's ghost variables are set BEFORE the actual
-        // tx, after a successful payIntent they should match.
-        uint256 totalDistributed = handler.ghost_totalSettledMerchant() + handler.ghost_totalSettledOperator()
-            + handler.ghost_totalSettledTreasury();
-
-        // Sum of all payers' deficits = totalDistributed (since each payer
-        // pays exactly what gets distributed).
-        // Easier: contract balance + treasury + merchants + operators ==
-        // total paid in. We sum what we can directly observe.
-        uint256 inTreasury = usdc.balanceOf(TREASURY);
-        assertGe(inTreasury, handler.ghost_totalSettledTreasury(), "Treasury under-received");
-        assertEq(inTreasury, handler.ghost_totalSettledTreasury(), "Treasury over-received from somewhere");
-
-        // Conservation: handler tracked the math; hub must agree.
-        assertEq(totalDistributed, totalDistributed, "tautology - used to anchor the assertion");
+        uint256 toOperators;
+        for (uint256 i = 0; i < handler.operatorsLength(); i++) {
+            address op = handler.operators(i);
+            toOperators += usdc.balanceOf(op) + hub.accrued(op);
+        }
+        assertEq(toOperators, handler.ghost_totalSettledOperator(), "operators got more or less than their share");
     }
 
     // ── Invariant 3: merchant/nodeit/treasury split is 98.5% / 1.05% / 0.45% ──
