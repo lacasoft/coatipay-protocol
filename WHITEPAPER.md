@@ -145,7 +145,7 @@ Los tres contratos incluyen:
 - Eventos para indexación off-chain
 - Custom errors para optimización de gas
 
-**Sobre el guardian:** diseños anteriores del protocolo planteaban contratos "sin llaves de admin, sin pausa". En la práctica, un exploit descubierto post-deploy sin mecanismo de pausa significa pérdida total de fondos para los afectados. Elegimos el compromiso pragmático: hay pausa de emergencia, pero está gobernada por un multisig 3-de-5 — nunca por una llave única — mantenido por la Fundación/equipo core (en producción recomendamos un multisig de hardware wallets). No hay una migración a gobernanza on-chain comprometida: lo que descentralizamos es la **operación** de la red (cualquiera corre un nodeit), no el control de los contratos.
+**Sobre el guardian:** diseños anteriores del protocolo planteaban contratos "sin llaves de admin, sin pausa". En la práctica, un exploit descubierto post-deploy sin mecanismo de pausa significa pérdida total de fondos para los afectados. Elegimos el compromiso pragmático: hay pausa de emergencia, y en mainnet estará gobernada por un multisig —previsto de 3-de-5, nunca una llave única— mantenido por la Fundación/equipo core (recomendamos un multisig de hardware wallets). Hoy, en testnet, el guardian es una sola cartera. No hay una migración a gobernanza on-chain comprometida: lo que descentralizamos es la **operación** de la red (cualquiera corre un nodeit), no el control de los contratos.
 
 ### 3.3 Flujo de una transacción
 
@@ -343,8 +343,8 @@ El treasury lo gestiona la Fundación; su balance es públicamente visible on-ch
 ### 5.2 Mecanismos de protección
 
 - **Pausa de emergencia:** Guardian puede pausar contratos si se detecta un exploit
-- **Multisig para gobernanza:** El guardian es un multisig 3-de-5 — la pausa nunca depende de una llave única
-- **HMAC-SHA256:** Comunicación API↔Nodeit firmada con ventana de 60 segundos
+- **Multisig para gobernanza (mainnet):** el guardian será un multisig, previsto de 3-de-5, para que la pausa no dependa de una llave única. En testnet es hoy una sola cartera
+- **Firma del operador:** cada petición del nodeit a la API va firmada con la llave con que se registró on-chain, y cubre la hora, un nonce de un solo uso, el método, la ruta y el cuerpo
 - **Replay atómico:** Redis `SET NX` previene doble uso de transacciones x402
 - **Rate limiting:** 100 req/min por API key con Redis
 - **SSRF protection:** URLs de webhooks validadas contra rangos IP privados

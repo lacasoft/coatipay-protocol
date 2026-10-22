@@ -107,7 +107,7 @@ Un operador de nodo en CoatiPay observa transacciones on-chain y cobra fees por 
 
 **¿Puede el gobierno congelar transacciones que pasan por CoatiPay?**
 
-CoatiPay no tiene la capacidad técnica de congelar ni revertir fondos — los contratos son no actualizables y nadie puede mover el dinero de un pago. Los contratos **sí** incluyen una pausa de emergencia limitada (un `Pausable` controlado por un multisig 3-de-5) que solo puede detener operaciones *nuevas* (registro de nodos, apertura de disputas) ante un exploit activo; no congela pagos en vuelo ni toca fondos de nadie. Lo que sí puede ocurrir es que Circle (emisor de USDC) implemente blacklisting de addresses en el contrato de USDC. Eso es un control del emisor, no del protocolo de routing.
+CoatiPay no tiene la capacidad técnica de revertir un pago ni de mover el dinero de nadie: los contratos son no actualizables y no hay llave que pueda transferir fondos. Los contratos **sí** incluyen una pausa de emergencia (un `Pausable` en manos de un guardian: en mainnet, un multisig —previsto de 3-de-5—, nunca una llave única; hoy, en testnet, una sola cartera) pensada para detener operaciones nuevas ante un exploit activo. Pausar no mueve dinero, pero sí lo detiene: en el hub bloquea el registro de intents y, como cada pago se registra al liquidarse, deja sin completar también los que el pagador ya firmó; en StakeManager impide depositar y retirar stake mientras dure la pausa. Aparte, Circle (emisor de USDC) puede pausar el token o poner direcciones en su lista negra: es un control del emisor, no del protocolo, pero afecta a los pagos que pasan por esas direcciones.
 
 **¿CoatiPay recopila datos personales de pagadores o merchants?**
 
