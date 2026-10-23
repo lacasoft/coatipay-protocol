@@ -5,13 +5,19 @@ abstract contract Pausable {
     bool private _paused;
     address public guardian;
 
+    /// @notice Guardian propuesto que aún no ha aceptado (ADR-009 §6). Cero si
+    ///         no hay ninguna transferencia en curso.
+    address public pendingGuardian;
+
     event Paused(address indexed account);
     event Unpaused(address indexed account);
+    event GuardianTransferStarted(address indexed current, address indexed proposed);
     event GuardianTransferred(address indexed previous, address indexed next);
 
     error EnforcedPause();
     error ExpectedPause();
     error NotGuardian();
+    error NotPendingGuardian();
     error ZeroGuardian();
 
     modifier whenNotPaused() {
@@ -36,10 +42,26 @@ abstract contract Pausable {
         guardian = _guardian;
     }
 
+    /// @notice Propone un guardian nuevo. No cambia nada hasta que el propuesto
+    ///         llame a `acceptGuardian()`: una dirección mal escrita nunca
+    ///         acepta, y el guardian sigue siendo el actual. Proponer la
+    ///         dirección cero cancela la propuesta en curso.
+    // Cero es a propósito: cancela la propuesta. Nadie puede aceptar desde la
+    // dirección cero, así que el guardian nunca queda a cero.
+    // slither-disable-next-line missing-zero-check
     function transferGuardian(address newGuardian) external onlyGuardian {
-        if (newGuardian == address(0)) revert ZeroGuardian();
-        emit GuardianTransferred(guardian, newGuardian);
-        guardian = newGuardian;
+        pendingGuardian = newGuardian;
+        emit GuardianTransferStarted(guardian, newGuardian);
+    }
+
+    /// @notice El guardian propuesto acepta el cargo.
+    function acceptGuardian() external {
+        // Con `pendingGuardian` a cero nadie puede aceptar: `msg.sender` nunca
+        // es la dirección cero.
+        if (msg.sender != pendingGuardian) revert NotPendingGuardian();
+        emit GuardianTransferred(guardian, msg.sender);
+        guardian = msg.sender;
+        pendingGuardian = address(0);
     }
 
     function pause() external onlyGuardian whenNotPaused {

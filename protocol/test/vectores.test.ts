@@ -48,12 +48,16 @@ describe('vectores compartidos entre SDK', () => {
     }
   })
 
-  it('el nonce de cada autorización es el de su cobro', () => {
+  it('el nonce de cada autorización es el de su cobro y su comercio', () => {
+    const clave = (id: string, comercio: string) => `${id}|${comercio.toLowerCase()}`
     const nonces = Object.fromEntries(
-      leer('nonce.json').casos.map((c: { intent_id: string; nonce: string }) => [c.intent_id, c.nonce]),
+      leer('nonce.json').casos.map((c: { intent_id: string; merchant: string; nonce: string }) => [
+        clave(c.intent_id, c.merchant),
+        c.nonce,
+      ]),
     )
     for (const c of leer('autorizacion.json').casos) {
-      expect(c.esperado.message.nonce).toBe(nonces[c.entrada.intent_id])
+      expect(c.esperado.message.nonce).toBe(nonces[clave(c.entrada.intent_id, c.entrada.merchant)])
     }
   })
 

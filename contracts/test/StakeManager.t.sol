@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {StakeManager} from "../src/StakeManager.sol";
 import {Pausable} from "../src/Pausable.sol";
 import {MockUSDC} from "./mocks/MockUSDC.sol";
+import {MockUSDCPermit} from "./mocks/MockUSDCPermit.sol";
 
 contract StakeManagerTest is Test {
     StakeManager stakeManager;
@@ -19,7 +20,7 @@ contract StakeManagerTest is Test {
 
     function setUp() public {
         usdc = new MockUSDC();
-        stakeManager = new StakeManager(address(usdc), guardian);
+        stakeManager = new StakeManager(address(usdc), guardian, treasury);
 
         usdc.mint(operator, 10_000 * 1e6); // 10,000 USDC
     }
@@ -164,30 +165,37 @@ contract StakeManagerTest is Test {
         vm.stopPrank();
     }
 
-    function test_Pause_RequestWithdrawalRevertsWhenPaused() public {
+    /// ADR-009 §7: la pausa frena el riesgo nuevo (depósitos), pero no
+    /// retiene el stake de nadie. Antes, el guardian podía congelar los
+    /// retiros de todos.
+    function test_Pause_WithdrawalsStillWorkWhenPaused() public {
         _deposit(operator, STAKE);
 
         vm.prank(guardian);
         stakeManager.pause();
-
-        vm.prank(operator);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
-        stakeManager.requestWithdrawal(STAKE);
-    }
-
-    function test_Pause_ExecuteWithdrawalRevertsWhenPaused() public {
-        _deposit(operator, STAKE);
 
         vm.prank(operator);
         stakeManager.requestWithdrawal(STAKE);
 
         vm.warp(block.timestamp + TIMELOCK + 1);
 
+        uint256 before = usdc.balanceOf(operator);
+        vm.prank(operator);
+        stakeManager.executeWithdrawal();
+
+        assertEq(usdc.balanceOf(operator) - before, STAKE, "el stake sale aunque el contrato este en pausa");
+        assertTrue(stakeManager.paused(), "y la pausa sigue puesta");
+    }
+
+    function test_Pause_TimelockStillAppliesWhenPaused() public {
+        _deposit(operator, STAKE);
         vm.prank(guardian);
         stakeManager.pause();
+        vm.prank(operator);
+        stakeManager.requestWithdrawal(STAKE);
 
         vm.prank(operator);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
+        vm.expectRevert(abi.encodeWithSelector(StakeManager.TimelockNotExpired.selector, block.timestamp + TIMELOCK));
         stakeManager.executeWithdrawal();
     }
 
@@ -219,11 +227,75 @@ contract StakeManagerTest is Test {
 
     function test_Constructor_Revert_ZeroUsdc() public {
         vm.expectRevert(StakeManager.ZeroAddress.selector);
-        new StakeManager(address(0), guardian);
+        new StakeManager(address(0), guardian, treasury);
     }
 
     function test_Constructor_Revert_ZeroGuardian() public {
         vm.expectRevert(Pausable.ZeroGuardian.selector);
-        new StakeManager(address(usdc), address(0));
+        new StakeManager(address(usdc), address(0), treasury);
+    }
+
+    function test_Constructor_Revert_ZeroTreasury() public {
+        vm.expectRevert(StakeManager.ZeroAddress.selector);
+        new StakeManager(address(usdc), guardian, address(0));
+    }
+
+    // ── Rescate de lo que sobra (ADR-009 §8) ──────────────────
+
+    function test_TotalHeld_TracksStakesInAndOut() public {
+        _deposit(operator, STAKE);
+        assertEq(stakeManager.totalHeld(), STAKE);
+
+        vm.prank(operator);
+        stakeManager.requestWithdrawal(STAKE / 2);
+        assertEq(stakeManager.totalHeld(), STAKE, "lo que esta saliendo sigue siendo del nodeit");
+
+        vm.warp(block.timestamp + TIMELOCK);
+        vm.prank(operator);
+        stakeManager.executeWithdrawal();
+        assertEq(stakeManager.totalHeld(), STAKE / 2);
+    }
+
+    /// USDC enviado directamente, sin `deposit`, sale hacia la tesorería; el
+    /// stake de los nodeits no se toca.
+    function test_SweepSurplus_MovesOnlyWhatIsNotStake() public {
+        _deposit(operator, STAKE);
+        usdc.mint(address(stakeManager), 20_000_000); // 20 USDC por error
+
+        vm.expectEmit(true, false, false, true);
+        emit StakeManager.SurplusSwept(address(usdc), 20_000_000);
+        vm.prank(makeAddr("anyone"));
+        stakeManager.sweepSurplus();
+
+        assertEq(usdc.balanceOf(treasury), 20_000_000, "la tesoreria recibe lo que sobraba");
+        assertEq(usdc.balanceOf(address(stakeManager)), STAKE, "el stake sigue entero");
+        assertEq(stakeManager.getStakeInfo(operator).staked, STAKE);
+    }
+
+    function test_SweepSurplus_Revert_NothingToSweep() public {
+        _deposit(operator, STAKE);
+        vm.expectRevert(StakeManager.NothingToSweep.selector);
+        stakeManager.sweepSurplus();
+    }
+
+    function test_SweepToken_OtherToken() public {
+        MockUSDCPermit other = new MockUSDCPermit();
+        other.mint(address(stakeManager), 5e6);
+
+        stakeManager.sweepToken(address(other));
+
+        assertEq(other.balanceOf(treasury), 5e6);
+        assertEq(other.balanceOf(address(stakeManager)), 0);
+    }
+
+    function test_SweepToken_Revert_Usdc() public {
+        vm.expectRevert(StakeManager.UseSweepSurplus.selector);
+        stakeManager.sweepToken(address(usdc));
+    }
+
+    function test_SweepToken_Revert_NothingToSweep() public {
+        MockUSDCPermit other = new MockUSDCPermit();
+        vm.expectRevert(StakeManager.NothingToSweep.selector);
+        stakeManager.sweepToken(address(other));
     }
 }

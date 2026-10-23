@@ -18,7 +18,10 @@ contract SettlementHubTest is Test, IntentSigning {
     address payer;
     uint256 payerKey;
 
-    bytes32 constant INTENT_ID = keccak256("pi_test_001");
+    /// La referencia del cobro fuera de la cadena; el hub calcula el
+    /// `intentId` a partir de ella y del comercio (ADR-009 §3).
+    bytes32 constant REF = keccak256("pi_test_001");
+    bytes32 INTENT_ID;
     uint256 constant AMOUNT = 1_000_000_000; // 1000 USDC (6 decimals)
     uint64 expiresAt;
 
@@ -30,6 +33,7 @@ contract SettlementHubTest is Test, IntentSigning {
         usdc.mint(payer, 10 * AMOUNT);
 
         expiresAt = uint64(block.timestamp + 30 minutes);
+        INTENT_ID = hub.intentIdOf(merchant, REF);
     }
 
     // ── Constructor ───────────────────────────────────────────
@@ -70,7 +74,7 @@ contract SettlementHubTest is Test, IntentSigning {
         vm.expectEmit(true, true, true, true);
         emit SettlementHub.IntentRegistered(INTENT_ID, merchant, operator, AMOUNT, expiresAt);
 
-        _reg(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, REF, merchant, operator, AMOUNT, expiresAt);
 
         SettlementHub.Intent memory i = hub.getIntent(INTENT_ID);
         assertEq(i.merchant, merchant);
@@ -81,34 +85,34 @@ contract SettlementHubTest is Test, IntentSigning {
     }
 
     function test_RegisterIntent_Revert_AlreadyRegistered() public {
-        _reg(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, REF, merchant, operator, AMOUNT, expiresAt);
 
-        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, REF, merchant, operator, AMOUNT, expiresAt);
         vm.expectRevert(SettlementHub.AlreadyRegistered.selector);
         hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_ZeroMerchant() public {
-        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, address(0), operator, AMOUNT, expiresAt);
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, REF, address(0), operator, AMOUNT, expiresAt);
         vm.expectRevert(SettlementHub.ZeroAddress.selector);
         hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_ZeroOperator() public {
-        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, address(0), AMOUNT, expiresAt);
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, REF, merchant, address(0), AMOUNT, expiresAt);
         vm.expectRevert(SettlementHub.ZeroAddress.selector);
         hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_ZeroAmount() public {
-        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, operator, 0, expiresAt);
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, REF, merchant, operator, 0, expiresAt);
         vm.expectRevert(SettlementHub.ZeroAmount.selector);
         hub.registerIntent(reg);
     }
 
     function test_RegisterIntent_Revert_PastExpiry() public {
         SettlementHub.IntentRegistration memory reg =
-            _regOf(hub, INTENT_ID, merchant, operator, AMOUNT, uint64(block.timestamp));
+            _regOf(hub, REF, merchant, operator, AMOUNT, uint64(block.timestamp));
         vm.expectRevert(SettlementHub.InvalidExpiry.selector);
         hub.registerIntent(reg);
     }
@@ -117,7 +121,7 @@ contract SettlementHubTest is Test, IntentSigning {
         vm.prank(guardian);
         hub.pause();
 
-        SettlementHub.IntentRegistration memory reg = _regOf(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        SettlementHub.IntentRegistration memory reg = _regOf(hub, REF, merchant, operator, AMOUNT, expiresAt);
         vm.expectRevert(Pausable.EnforcedPause.selector);
         hub.registerIntent(reg);
     }
@@ -127,7 +131,7 @@ contract SettlementHubTest is Test, IntentSigning {
         // gets fees. A "registrar" pays gas with no return.
         address randomCaller = makeAddr("random");
         vm.prank(randomCaller);
-        _reg(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, REF, merchant, operator, AMOUNT, expiresAt);
 
         SettlementHub.Intent memory i = hub.getIntent(INTENT_ID);
         assertEq(i.operator, operator, "operator field is the recorded one, not msg.sender");
@@ -154,7 +158,7 @@ contract SettlementHubTest is Test, IntentSigning {
         assertEq(registered, 3);
 
         for (uint256 i = 0; i < 3; i++) {
-            SettlementHub.Intent memory intent = hub.getIntent(ids[i]);
+            SettlementHub.Intent memory intent = hub.getIntent(hub.intentIdOf(merchant, ids[i]));
             assertEq(intent.amount, AMOUNT);
         }
     }
@@ -188,7 +192,7 @@ contract SettlementHubTest is Test, IntentSigning {
     // ── payIntent ─────────────────────────────────────────────
 
     function _registerDefault() internal {
-        _reg(hub, INTENT_ID, merchant, operator, AMOUNT, expiresAt);
+        _reg(hub, REF, merchant, operator, AMOUNT, expiresAt);
     }
 
     function test_PayIntent_Success() public {
@@ -208,11 +212,15 @@ contract SettlementHubTest is Test, IntentSigning {
         hub.payIntent(INTENT_ID);
         vm.stopPrank();
 
-        // Verify split
+        // Verify split: the merchant is paid at once, the fees are credited
+        // (ADR-009 §1) and the hub holds exactly what it credited.
         assertEq(usdc.balanceOf(merchant), merchantAmount, "merchant gets 98.5%");
-        assertEq(usdc.balanceOf(operator), operatorFee, "operator gets 1.05%");
-        assertEq(usdc.balanceOf(treasury), treasuryFee, "treasury gets 0.45%");
-        assertEq(usdc.balanceOf(address(hub)), 0, "contract holds nothing post-settle");
+        assertEq(hub.accrued(operator), operatorFee, "operator credited 1.05%");
+        assertEq(hub.accrued(treasury), treasuryFee, "treasury credited 0.45%");
+        assertEq(usdc.balanceOf(operator), 0, "operator not paid until it claims");
+        assertEq(usdc.balanceOf(treasury), 0, "treasury not paid until it claims");
+        assertEq(usdc.balanceOf(address(hub)), operatorFee + treasuryFee, "hub holds the credited fees");
+        assertEq(hub.totalAccrued(), operatorFee + treasuryFee, "totalAccrued tracks the credits");
 
         // Status updated
         SettlementHub.Intent memory i = hub.getIntent(INTENT_ID);
@@ -303,8 +311,8 @@ contract SettlementHubTest is Test, IntentSigning {
 
         // Same split as payIntent
         assertEq(usdc.balanceOf(merchant), 985_000_000);
-        assertEq(usdc.balanceOf(operator), 10_500_000);
-        assertEq(usdc.balanceOf(treasury), 4_500_000);
+        assertEq(hub.accrued(operator), 10_500_000);
+        assertEq(hub.accrued(treasury), 4_500_000);
     }
 
     function test_PayIntentWithPermit_BadSignature_FallsThroughToTransferFromRevert() public {
@@ -436,8 +444,8 @@ contract SettlementHubTest is Test, IntentSigning {
         vm.stopPrank();
 
         assertEq(usdc.balanceOf(merchant), m);
-        assertEq(usdc.balanceOf(operator), o);
-        assertEq(usdc.balanceOf(treasury), t);
+        assertEq(hub.accrued(operator), o);
+        assertEq(hub.accrued(treasury), t);
     }
 
     function test_PreviewSplit_SmallAmount() public view {
@@ -530,8 +538,7 @@ contract SettlementHubTest is Test, IntentSigning {
         amount = bound(amount, 10_000, 10_000_000_000); // 0.01 to 10k USDC
         usdc.mint(payer, amount);
 
-        bytes32 fuzzId = keccak256(abi.encode("fuzz", amount));
-        _reg(hub, fuzzId, merchant, operator, amount, expiresAt);
+        bytes32 fuzzId = _reg(hub, keccak256(abi.encode("fuzz", amount)), merchant, operator, amount, expiresAt);
 
         vm.startPrank(payer);
         usdc.approve(address(hub), amount);

@@ -91,7 +91,7 @@ contract ReentrancyGuardTest is Test {
 
     function setUp() public {
         usdc = new HookUSDC();
-        stakeManager = new StakeManager(address(usdc), guardian);
+        stakeManager = new StakeManager(address(usdc), guardian, makeAddr("treasury"));
         nodeRegistry = new NodeRegistry(address(stakeManager), guardian, 40_000_000);
 
         usdc.mint(operator, 10_000 * 1e6);

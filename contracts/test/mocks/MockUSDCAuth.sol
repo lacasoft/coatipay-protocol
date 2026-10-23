@@ -20,6 +20,11 @@ contract MockUSDCAuth is IERC20 {
     /// @dev authorizer → nonce → consumed?
     mapping(address => mapping(bytes32 => bool)) private _authorizationStates;
 
+    /// @dev Lista negra como la de FiatToken: una dirección bloqueada no puede
+    ///      enviar ni recibir. Sirve para probar sin bifurcación lo que la
+    ///      revisión de octubre reprodujo contra el USDC real (ADR-009 §1).
+    mapping(address => bool) public isBlacklisted;
+
     bytes32 public constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH = keccak256(
         "ReceiveWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
     );
@@ -52,7 +57,22 @@ contract MockUSDCAuth is IERC20 {
         balances[to] += amount;
     }
 
+    function blacklist(address account) external {
+        isBlacklisted[account] = true;
+    }
+
+    function unBlacklist(address account) external {
+        isBlacklisted[account] = false;
+    }
+
+    /// @dev Mismo mensaje que FiatToken.
+    function _notBlacklisted(address account) internal view {
+        require(!isBlacklisted[account], "Blacklistable: account is blacklisted");
+    }
+
     function transfer(address to, uint256 amount) external returns (bool) {
+        _notBlacklisted(msg.sender);
+        _notBlacklisted(to);
         require(balances[msg.sender] >= amount, "insufficient balance");
         balances[msg.sender] -= amount;
         balances[to] += amount;
@@ -60,6 +80,9 @@ contract MockUSDCAuth is IERC20 {
     }
 
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        _notBlacklisted(msg.sender);
+        _notBlacklisted(from);
+        _notBlacklisted(to);
         require(balances[from] >= amount, "insufficient balance");
         require(allowances[from][msg.sender] >= amount, "insufficient allowance");
         balances[from] -= amount;
@@ -170,6 +193,8 @@ contract MockUSDCAuth is IERC20 {
 
         _authorizationStates[from][nonce] = true;
 
+        _notBlacklisted(from);
+        _notBlacklisted(to);
         require(balances[from] >= value, "insufficient balance");
         balances[from] -= value;
         balances[to] += value;
@@ -198,6 +223,8 @@ contract MockUSDCAuth is IERC20 {
 
         _authorizationStates[from][nonce] = true;
 
+        _notBlacklisted(from);
+        _notBlacklisted(to);
         require(balances[from] >= value, "insufficient balance");
         balances[from] -= value;
         balances[to] += value;

@@ -25,7 +25,7 @@ contract NodeRegistryTest is Test {
 
         // NodeRegistry solo lee el stake vía getStakeInfo(); no hay nada
         // que cablear entre ambos contratos.
-        stakeManager = new StakeManager(address(usdc), guardian);
+        stakeManager = new StakeManager(address(usdc), guardian, treasury);
 
         registry = new NodeRegistry(address(stakeManager), guardian, MIN_STAKE);
 
@@ -287,7 +287,14 @@ contract NodeRegistryTest is Test {
         vm.prank(guardian);
         registry.transferGuardian(newGuardian);
 
+        // Two steps (ADR-009 §6): nothing changes until the new one accepts.
+        assertEq(registry.guardian(), guardian);
+        assertEq(registry.pendingGuardian(), newGuardian);
+
+        vm.prank(newGuardian);
+        registry.acceptGuardian();
         assertEq(registry.guardian(), newGuardian);
+        assertEq(registry.pendingGuardian(), address(0));
 
         // Old guardian can no longer pause
         vm.prank(guardian);
@@ -300,50 +307,131 @@ contract NodeRegistryTest is Test {
         assertTrue(registry.paused());
     }
 
-    // ── Adjustable min stake ──────────────────────────────────
+    // ── Adjustable min stake, with notice (ADR-009 §5) ────────
 
     function test_MinStake_InitialValue() public view {
         assertEq(registry.minStake(), MIN_STAKE);
+        assertEq(registry.MIN_STAKE_DELAY(), 7 days);
     }
 
-    function test_SetMinStake_GuardianCanIncrease() public {
+    function test_Constructor_Revert_ZeroMinStake() public {
+        vm.expectRevert(NodeRegistry.ZeroMinStake.selector);
+        new NodeRegistry(address(stakeManager), guardian, 0);
+    }
+
+    function _propose(uint256 newMin) internal {
+        vm.prank(guardian);
+        registry.proposeMinStake(newMin);
+    }
+
+    function test_ProposeMinStake_DoesNotApplyBeforeTheDelay() public {
         uint256 newMin = MIN_STAKE * 2;
+        uint256 effectiveAt = block.timestamp + 7 days;
 
         vm.expectEmit(true, true, true, true);
-        emit NodeRegistry.MinStakeIncreased(MIN_STAKE, newMin);
+        emit NodeRegistry.MinStakeProposed(MIN_STAKE, newMin, effectiveAt);
+        _propose(newMin);
 
-        vm.prank(guardian);
-        registry.setMinStake(newMin);
+        assertEq(registry.minStake(), MIN_STAKE, "unchanged until applied");
+        assertEq(registry.pendingMinStake(), newMin);
+        assertEq(registry.minStakeEffectiveAt(), effectiveAt);
+
+        vm.warp(effectiveAt - 1);
+        vm.expectRevert(abi.encodeWithSelector(NodeRegistry.MinStakeDelayNotElapsed.selector, effectiveAt));
+        registry.applyMinStake();
+    }
+
+    function test_ApplyMinStake_AnyoneAfterTheDelay() public {
+        uint256 newMin = MIN_STAKE * 2;
+        _propose(newMin);
+        vm.warp(block.timestamp + 7 days);
+
+        vm.expectEmit(true, true, true, true);
+        emit NodeRegistry.MinStakeChanged(MIN_STAKE, newMin);
+        vm.prank(makeAddr("anyone"));
+        registry.applyMinStake();
 
         assertEq(registry.minStake(), newMin);
+        assertEq(registry.pendingMinStake(), 0);
+        assertEq(registry.minStakeEffectiveAt(), 0);
     }
 
-    function test_SetMinStake_Revert_Decrease() public {
-        uint256 lowerMin = MIN_STAKE - 1;
-
-        vm.prank(guardian);
-        vm.expectRevert(abi.encodeWithSelector(NodeRegistry.MinStakeCannotDecrease.selector, MIN_STAKE, lowerMin));
-        registry.setMinStake(lowerMin);
+    /// Before ADR-009 it could only go up: a mistake or a stolen key locked
+    /// every nodeit out for good. Now a mistake is undone the same way.
+    function test_MinStake_CanGoDown() public {
+        _propose(MIN_STAKE / 2);
+        vm.warp(block.timestamp + 7 days);
+        registry.applyMinStake();
+        assertEq(registry.minStake(), MIN_STAKE / 2);
     }
 
-    function test_SetMinStake_Revert_NonGuardian() public {
+    function test_ProposeMinStake_Revert_NonGuardian() public {
         vm.prank(operator);
         vm.expectRevert(Pausable.NotGuardian.selector);
-        registry.setMinStake(MIN_STAKE * 2);
+        registry.proposeMinStake(MIN_STAKE * 2);
     }
 
-    function test_SetMinStake_SameValueAllowed() public {
-        // Setting to the same value is a no-op but shouldn't revert
-        // (it's a set, not a strict increase — emits the event anyway)
+    function test_ProposeMinStake_Revert_Zero() public {
         vm.prank(guardian);
-        registry.setMinStake(MIN_STAKE);
+        vm.expectRevert(NodeRegistry.ZeroMinStake.selector);
+        registry.proposeMinStake(0);
+    }
+
+    function test_ApplyMinStake_Revert_NoProposal() public {
+        vm.expectRevert(NodeRegistry.NoMinStakeProposal.selector);
+        registry.applyMinStake();
+    }
+
+    /// An absurd value — a mistake, or a stolen key — is seen a week ahead
+    /// and cancelled before it applies.
+    function test_CancelMinStakeProposal() public {
+        _propose(type(uint256).max);
+
+        vm.expectEmit(true, true, true, true);
+        emit NodeRegistry.MinStakeProposalCancelled(type(uint256).max);
+        vm.prank(guardian);
+        registry.cancelMinStakeProposal();
+
+        vm.warp(block.timestamp + 7 days);
+        vm.expectRevert(NodeRegistry.NoMinStakeProposal.selector);
+        registry.applyMinStake();
         assertEq(registry.minStake(), MIN_STAKE);
+    }
+
+    function test_CancelMinStakeProposal_Revert_NonGuardian() public {
+        _propose(MIN_STAKE * 2);
+        vm.prank(operator);
+        vm.expectRevert(Pausable.NotGuardian.selector);
+        registry.cancelMinStakeProposal();
+    }
+
+    function test_CancelMinStakeProposal_Revert_NoProposal() public {
+        vm.prank(guardian);
+        vm.expectRevert(NodeRegistry.NoMinStakeProposal.selector);
+        registry.cancelMinStakeProposal();
+    }
+
+    /// A new proposal replaces the pending one and its delay starts over:
+    /// there is no way to shorten the notice.
+    function test_ProposeMinStake_ReplacesAndRestartsTheDelay() public {
+        _propose(MIN_STAKE * 2);
+        vm.warp(block.timestamp + 6 days);
+        _propose(MIN_STAKE * 3);
+
+        vm.warp(block.timestamp + 1 days);
+        vm.expectRevert(abi.encodeWithSelector(NodeRegistry.MinStakeDelayNotElapsed.selector, block.timestamp + 6 days));
+        registry.applyMinStake();
+
+        vm.warp(block.timestamp + 6 days);
+        registry.applyMinStake();
+        assertEq(registry.minStake(), MIN_STAKE * 3);
     }
 
     function test_Register_AfterMinStakeIncrease_OldStakeTooLow() public {
         uint256 newMin = MIN_STAKE * 2;
-        vm.prank(guardian);
-        registry.setMinStake(newMin);
+        _propose(newMin);
+        vm.warp(block.timestamp + 7 days);
+        registry.applyMinStake();
 
         // Operator stakes the OLD minimum, then tries to register
         usdc.mint(operator, MIN_STAKE);
@@ -386,6 +474,48 @@ contract NodeRegistryTest is Test {
         vm.prank(operator);
         vm.expectRevert(Pausable.EnforcedPause.selector);
         registry.activate();
+    }
+
+    // ── Lectura por páginas (OCT-13) ──────────────────────────
+
+    function test_GetActiveNodesPage() public {
+        address[] memory ops = new address[](5);
+        for (uint256 i; i < 5; i++) {
+            ops[i] = makeAddr(string(abi.encode("op", i)));
+            _registerOperator(ops[i], MIN_STAKE);
+        }
+        assertEq(registry.activeNodeCount(), 5);
+
+        address[] memory p0 = registry.getActiveNodesPage(0, 2);
+        address[] memory p1 = registry.getActiveNodesPage(2, 2);
+        address[] memory p2 = registry.getActiveNodesPage(4, 2);
+        assertEq(p0.length, 2);
+        assertEq(p1.length, 2);
+        assertEq(p2.length, 1, "la ultima pagina viene corta");
+        assertEq(p0[0], ops[0]);
+        assertEq(p1[1], ops[3]);
+        assertEq(p2[0], ops[4]);
+
+        assertEq(registry.getActiveNodesPage(5, 2).length, 0, "pasado el final, nada");
+        assertEq(registry.getActiveNodesPage(0, 0).length, 0);
+        assertEq(registry.getActiveNodesPage(1, type(uint256).max).length, 4, "sin desbordar");
+    }
+
+    function testFuzz_GetActiveNodesPage_CubreLaListaEntera(uint8 n, uint8 tam) public {
+        n = uint8(bound(n, 0, 12));
+        tam = uint8(bound(tam, 1, 5));
+        for (uint256 i; i < n; i++) {
+            _registerOperator(makeAddr(string(abi.encode("f", i))), MIN_STAKE);
+        }
+        address[] memory todos = registry.getActiveNodes();
+        uint256 visto;
+        for (uint256 off; off < n; off += tam) {
+            address[] memory p = registry.getActiveNodesPage(off, tam);
+            for (uint256 j; j < p.length; j++) {
+                assertEq(p[j], todos[visto++]);
+            }
+        }
+        assertEq(visto, n);
     }
 
     // ── Helpers ───────────────────────────────────────────────

@@ -24,6 +24,15 @@ contract SettlementHubHandler is Test, IntentSigning {
     uint256 public ghost_totalRegistered;
     uint256 public ghost_calls;
 
+    /// @notice Comisiones acreditadas por los pagos (operador + tesorería).
+    uint256 public ghost_feesCredited;
+    /// @notice Todo lo cobrado con `claim` / `claimFor`.
+    uint256 public ghost_claimed;
+    /// @notice USDC enviado al hub por error, sin pasar por un pago.
+    uint256 public ghost_donated;
+    /// @notice Lo que `sweepSurplus` acreditó a la tesorería.
+    uint256 public ghost_swept;
+
     constructor(SettlementHub _hub, MockUSDCPermit _usdc, address _treasury) {
         hub = _hub;
         usdc = _usdc;
@@ -48,15 +57,15 @@ contract SettlementHubHandler is Test, IntentSigning {
         amount = bound(amount, 1, 1_000_000_000_000); // 1 wei to 1M USDC
         expiryOffset = bound(expiryOffset, 1, 30 days - 1); // valid lifetime
 
-        bytes32 intentId = keccak256(abi.encode("intent", ghost_calls, amount));
-        // Skip if already registered
-        if (hub.getIntent(intentId).merchant != address(0)) return;
-
+        bytes32 ref = keccak256(abi.encode("intent", ghost_calls, amount));
         address merchant = _pickAddr(merchants, merchantSeed);
+        // Skip if already registered
+        if (hub.getIntent(hub.intentIdOf(merchant, ref)).merchant != address(0)) return;
+
         address operator = _pickAddr(operators, operatorSeed);
         uint64 expiresAt = uint64(block.timestamp + expiryOffset);
 
-        _reg(hub, intentId, merchant, operator, amount, expiresAt);
+        bytes32 intentId = _reg(hub, ref, merchant, operator, amount, expiresAt);
         registeredIntents.push(intentId);
         ghost_totalRegistered++;
         ghost_calls++;
@@ -82,6 +91,45 @@ contract SettlementHubHandler is Test, IntentSigning {
         ghost_totalSettledMerchant += m;
         ghost_totalSettledOperator += o;
         ghost_totalSettledTreasury += t;
+        ghost_feesCredited += o + t;
+        ghost_calls++;
+    }
+
+    /// Un operador cobra lo suyo.
+    function claim(uint256 operatorSeed) external {
+        address operator = _pickAddr(operators, operatorSeed);
+        uint256 owed = hub.accrued(operator);
+        if (owed == 0) return;
+        vm.prank(operator);
+        hub.claim();
+        ghost_claimed += owed;
+        ghost_calls++;
+    }
+
+    /// La tarea periódica barre lo de la tesorería, sin sus llaves.
+    function claimTreasury(uint256 callerSeed) external {
+        uint256 owed = hub.accrued(treasury);
+        if (owed == 0) return;
+        vm.prank(_pickAddr(payers, callerSeed));
+        hub.claimFor(treasury);
+        ghost_claimed += owed;
+        ghost_calls++;
+    }
+
+    /// Alguien envía USDC al hub directamente, por error.
+    function donate(uint256 amount) external {
+        amount = bound(amount, 1, 1_000_000_000_000);
+        usdc.mint(address(hub), amount);
+        ghost_donated += amount;
+        ghost_calls++;
+    }
+
+    function sweepSurplus() external {
+        uint256 balance = usdc.balanceOf(address(hub));
+        uint256 owed = hub.totalAccrued();
+        if (balance <= owed) return;
+        hub.sweepSurplus();
+        ghost_swept += balance - owed;
         ghost_calls++;
     }
 

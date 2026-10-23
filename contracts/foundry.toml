@@ -8,6 +8,9 @@ optimizer = true
 optimizer_runs = 200
 solc_version = "0.8.25"
 evm_version = "cancun"
+# Los vectores que comparten los SDK: una prueba comprueba que el hub calcula
+# el mismo intentId que el paquete de TypeScript (ADR-009 §3).
+fs_permissions = [{ access = "read", path = "../protocol/vectors" }]
 
 # Property-based fuzzing. `runs` = number of independent random call
 # sequences; `depth` = how many calls per sequence. Default is intentionally
