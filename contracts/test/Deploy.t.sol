@@ -42,18 +42,16 @@ contract DeployGuardsTest is Test {
     }
 
     function _run(address usdc, address t, address g, address a) internal {
-        new Deploy()
-            .deploy(
-                Deploy.Params({
-                    usdc: usdc,
-                    treasury: t,
-                    guardian: g,
-                    signerAdmin: a,
-                    signerKey: hotKey,
-                    deployerKey: DEPLOYER_KEY,
-                    initialMinStake: 40_000_000
-                })
-            );
+        Deploy.Params memory p;
+        p.usdc = usdc;
+        p.treasury = t;
+        p.guardian = g;
+        p.signerAdmin = a;
+        p.signerKey = hotKey;
+        p.deployerKey = DEPLOYER_KEY;
+        p.initialMinStake = 40_000_000;
+        Deploy script = new Deploy();
+        script.deploy(p);
     }
 
     function test_ConMultisigsDespliega() public {
