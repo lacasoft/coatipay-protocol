@@ -134,14 +134,15 @@ No hay token. No hay mining. Solo trabajo real por pago real.
 
 ### 3.2 Contratos inteligentes
 
-Tres contratos en Base:
+Cuatro contratos en Base, diseñados para que **una parte que falla no detenga a las demás** ([ADR-009](audits/adr/009-una-parte-que-falla-no-detiene-a-las-demas.md)):
 
-- **NodeRegistry:** registro público de nodeits, cualquiera se registra con stake ≥ `minStake` (100 USDC mainnet · 40 USDC testnet; ajustable por guardian, solo incrementos)
-- **StakeManager:** depósitos y retiros con timelock de 7 días. El stake no es confiscable: acredita al nodeit en el registro y funciona como barrera anti-Sybil, no como fianza que alguien pueda ejecutar
-- **SettlementHub:** el contrato que mueve los fondos — jala el USDC del payer y lo splittea atómicamente on-chain (98.5% comercio / 1.05% nodeit / 0.45% treasury) en una sola transacción; corazón del settlement gasless ERC-3009
+- **NodeRegistry:** registro público de nodeits, cualquiera se registra con stake ≥ `minStake` (100 USDC mainnet · 40 USDC testnet). El guardian puede cambiar `minStake`, al alza o a la baja y nunca a cero, pero solo con 7 días de aviso on-chain
+- **StakeManager:** depósitos y retiros con timelock de 7 días. El stake no es confiscable: acredita al nodeit en el registro y funciona como barrera anti-Sybil, no como fianza que alguien pueda ejecutar. La pausa no impide retirarlo
+- **SettlementHub:** el contrato que mueve los fondos — jala el USDC del payer, paga el 98.5% al comercio en la misma transacción y acredita el 1.05% al nodeit y el 0.45% a la tesorería, que lo cobran con `claim()`; corazón del settlement gasless ERC-3009. Si el emisor de USDC bloquea a un nodeit o a la tesorería, los pagos siguen y su comisión espera
+- **IntentSignerGate:** la dirección que autoriza registrar intents. La API firma con una clave caliente, y un admin frío puede cambiarla o retirarla al instante sin redesplegar nada
 
-Los tres contratos incluyen:
-- Guardian con capacidad de pausa de emergencia (ver sección 5.2)
+Los contratos incluyen:
+- Guardian con capacidad de pausa de emergencia (ver sección 5.2), que frena el riesgo nuevo pero no retiene el dinero de nadie
 - Eventos para indexación off-chain
 - Custom errors para optimización de gas
 
@@ -163,13 +164,13 @@ const intent = await coatipay.paymentIntents.create({
 //    (ReceiveWithAuthorization, EIP-712) con su propia wallet.
 //    El SDK la envía a la API, que la encola.
 
-// 3. El daemon del nodeit reclama la autorización de la cola
+// 3. El daemon del nodeit toma la autorización de la cola
 //    y submitea payIntentWithAuthorization a SettlementHub.sol
 //    (el nodeit paga el gas — el pago es gasless para el cliente)
 
-// 4. SettlementHub.sol jala el USDC del cliente y lo splittea
-//    atómicamente on-chain: 98.5% al comercio, 1.05% al nodeit,
-//    0.45% al treasury. Emite el evento IntentSettled.
+// 4. SettlementHub.sol jala el USDC del cliente, paga el 98.5% al
+//    comercio en la misma transacción y acredita el 1.05% al nodeit
+//    y el 0.45% a la tesorería. Emite el evento IntentSettled.
 
 // 5. La API lee ella misma el evento IntentSettled de la cadena
 //    y marca el intent como settled. El nodeit no informa de nada.
@@ -177,7 +178,7 @@ const intent = await coatipay.paymentIntents.create({
 // 6. Webhook al comercio: status = 'settled'
 ```
 
-El nodeit nunca intercepta los fondos: el USDC se mueve del cliente al comercio dentro de una sola transacción atómica del contrato.
+El nodeit nunca intercepta los fondos: el USDC se mueve del cliente al comercio dentro de una sola transacción del contrato. Y la firma del cliente lleva dentro la cartera del comercio (el `intentId` que firma se calcula con ella), así que no sirve para pagar a nadie más.
 
 ### 3.4 Sistema de scoring — Fase 2 (planificado)
 
@@ -251,7 +252,7 @@ Distribución del 1.5%:
 - **70%** → nodeit (USDC) — 1.05% del monto
 - **30%** → treasury del protocolo — 0.45% del monto
 
-> **Nota — micropagos x402**: el split aplica igual on-chain. El payer ya es **gasless** vía
+> **Nota — micropagos x402**: el reparto aplica igual on-chain. El payer ya es **gasless** vía
 > ERC-3009 — firma una autorización off-chain y el nodeit submitea la tx y paga el gas (ETH),
 > así que el payer nunca necesita ETH. Lo que limita los micropagos no es el gas del payer
 > sino el piso económico: con gas de Base (~$0.0036 por intent) cada liquidación on-chain tiene
@@ -333,12 +334,14 @@ El treasury lo gestiona la Fundación; su balance es públicamente visible on-ch
 | Amenaza | Mitigación |
 |---------|------------|
 | Nodeit roba fondos | Imposible — los fondos nunca pasan por nodeits |
-| Nodeit cobra sin liquidar | Imposible — el split es atómico: si no liquida, no cobra |
+| Nodeit cobra sin liquidar | Imposible — su comisión solo se acredita en la transacción que liquida el pago |
+| Tesorería o nodeit bloqueados por el emisor de USDC | Los pagos siguen; su comisión queda acreditada hasta que se desbloquee (ADR-009) |
+| Clave que firma los registros, robada | El admin del `IntentSignerGate` la retira al instante; no puede atar a otro comercio un pago ya firmado |
 | Ataque Sybil | Stake mínimo 100 USDC |
 | Exit scam | Timelock 7 días para retirar stake |
 | Replay de pagos x402 | Redis `SET NX` + hash de tx en DB |
 | Double-spend | Confirmación on-chain requerida |
-| Llave HMAC comprometida | Por-nodeit, rotable sin downtime |
+| Suplantar a un nodeit ante la API | Cada petición va firmada con su llave on-chain; no hay secreto compartido |
 
 ### 5.2 Mecanismos de protección
 
@@ -354,8 +357,8 @@ El treasury lo gestiona la Fundación; su balance es públicamente visible on-ch
 
 Antes de mainnet:
 
-1. Tres contratos inteligentes (NodeRegistry, StakeManager, SettlementHub) + base `Pausable` — firma independiente
-2. Daemon del nodeit — revisión HMAC e implementación de llaves
+1. Cuatro contratos inteligentes (NodeRegistry, StakeManager, SettlementHub, IntentSignerGate) + base `Pausable` — firma independiente
+2. Daemon del nodeit — revisión de la firma de peticiones y del manejo de llaves
 3. API — penetration test de autenticación y webhooks
 
 Los reportes se publicarán en el repositorio público.
@@ -385,14 +388,14 @@ Los reportes se publicarán en el repositorio público.
 
 ## 7. Estado actual y limitaciones
 
-### 7.1 Qué funciona hoy (v0.1)
+### 7.1 Qué funciona hoy (v0.2)
 
-- Los tres contratos inteligentes desplegados (NodeRegistry, StakeManager, SettlementHub) + la base `Pausable` heredada, con 147 tests (unit + fuzz) en Foundry pasando
-- **Deploy en Base Sepolia live** con contratos verificados en Basescan (ver `packages/contracts/deployments/sepolia.json`)
+- Los cuatro contratos inteligentes desplegados (NodeRegistry, StakeManager, SettlementHub, IntentSignerGate) + la base `Pausable` heredada, con 216 tests en Foundry (unitarios, fuzz e invariantes) y 8 más contra una bifurcación de Base Sepolia con el USDC real
+- **Deploy en Base Sepolia live** con contratos verificados en Basescan (ver `contracts/deployments/sepolia.json`)
 - SDK JS/Python/PHP publicables, con tests
 - REST API completa (payment intents, webhooks, x402) con ~184 tests
 - Daemon del nodeit con verificación on-chain real via viem
-- Settlement gasless ERC-3009: el cliente firma una autorización `ReceiveWithAuthorization` y `SettlementHub.sol` jala el USDC y lo splittea atómicamente on-chain
+- Settlement gasless ERC-3009: el cliente firma una autorización `ReceiveWithAuthorization` y `SettlementHub.sol` jala el USDC, paga al comercio y acredita las comisiones
 - Webhook queue persistente en Redis (tolerante a crashes)
 - CI/CD con typecheck, tests, security audit, coverage
 
@@ -400,7 +403,7 @@ Los reportes se publicarán en el repositorio público.
 
 Seamos honestos:
 
-- **Deploy en Base Sepolia completo (testnet)** — addresses en `packages/contracts/deployments/sepolia.json`. Mainnet aún no: está bloqueado por auditoría externa pendiente.
+- **Deploy en Base Sepolia completo (testnet)** — addresses en `contracts/deployments/sepolia.json`. Mainnet aún no: está bloqueado por auditoría externa pendiente.
 - **No hay auditoría externa.** Es requisito obligatorio antes de mainnet. Presupuestado contra el treasury de Fase 2.
 - **Solo USDC en Base.** Hoy el único chain de settlement es Base; Polygon y Solana son hoja de ruta (Fase 3). BTC/Lightning quedó fuera de alcance (considerado y descartado).
 - **Sin on-ramps fiat — hoy el cliente debe ya tener USDC.**
@@ -418,10 +421,10 @@ Seamos honestos:
 
 > **Reframe estratégico (2026-05-09) — Luis Campos (LACA-SOFT):** El plan original incluía "Primer comercio" en esta fase. Eso fue un error de framing — ningún comercio real va a procesar ventas sobre testnet. La secuencia correcta es **capital → auditoría externa → mainnet → primer comercio**. Phase 1 cierra cuando el protocolo está en mainnet con auditoría pasada, no antes. "Primer comercio" se mueve a Phase 2.
 
-- ✅ Contratos + tests en Foundry (tres contratos desplegados + base `Pausable`; 147 tests, fuzz testing)
+- ✅ Contratos + tests en Foundry (cuatro contratos desplegados + base `Pausable`; 216 tests unitarios, fuzz e invariantes, y 8 contra una bifurcación de Base Sepolia)
 - ✅ SDK JavaScript, Python, PHP
 - ✅ Verificación on-chain de pagos via viem
-- ✅ Settlement gasless ERC-3009 vía `SettlementHub.sol` (split atómico on-chain)
+- ✅ Settlement gasless ERC-3009 vía `SettlementHub.sol` (el comercio cobra en la misma transacción; comisiones acreditadas)
 - ✅ CI/CD con GitHub Actions
 - ✅ Auditoría interna de seguridad (ver auditoría interna, registro no público)
 - ✅ Deploy en Base Sepolia — con guardas de dirección cero y separación de roles en wallets distintas. Ver [`contracts/deployments/sepolia.json`](contracts/deployments/sepolia.json).
@@ -521,8 +524,10 @@ USDC_BASE_ADDRESS        = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 USDC_DECIMALS            = 6
 minStake (mainnet)       = 100,000,000   (100 USDC) — initial value at deploy
 minStake (Sepolia)       =  40,000,000   ( 40 USDC) — initial value at deploy
-                           adjustable by guardian via NodeRegistry.updateMinStake(),
-                           increase-only (never reduced).
+                           changed by the guardian only with notice:
+                           proposeMinStake() + applyMinStake() after
+                           MIN_STAKE_DELAY; up or down, never zero.
+MIN_STAKE_DELAY          = 604800        (7 días)
 PROTOCOL_FEE_BPS         = 150           (1.5%)   — generated from SettlementHub.sol
 NODE_FEE_SHARE           = 0.70          (70% al nodeit)  — derived from OPERATOR_SHARE_BPS / PROTOCOL_FEE_BPS
 TREASURY_FEE_SHARE       = 0.30          (30% al treasury) — derived from TREASURY_SHARE_BPS / PROTOCOL_FEE_BPS

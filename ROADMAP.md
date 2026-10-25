@@ -56,7 +56,7 @@ Esa es la oportunidad que persigue CoatiPay. La ventana para construir infraestr
 - [x] **Deploy de contratos a Base Sepolia** — completado 2026-04-18 (ver `packages/contracts/deployments/sepolia.json`)
 - [x] Persistencia en PostgreSQL en la API (`packages/api/src/lib/db.ts` + `repository.ts`)
 - [x] Firma HMAC en el daemon del nodeit (`packages/node/src/lib/hmac.ts`, ventana 60s)
-- [x] Settlement gasless ERC-3009: el payer firma una autorización `ReceiveWithAuthorization` y `SettlementHub.sol` jala el USDC y lo splittea atómicamente on-chain (98.5% comercio / 1.05% nodeit / 0.45% treasury)
+- [x] Settlement gasless ERC-3009: el payer firma una autorización `ReceiveWithAuthorization` y `SettlementHub.sol` jala el USDC, paga al comercio en la misma transacción y acredita las comisiones (98.5% comercio / 1.05% nodeit / 0.45% treasury; reparto *pull* desde ADR-009)
 - [x] Verificación on-chain de pagos x402 + protección contra replay (atomic `SET NX` en Redis + tx_hash en DB)
 - [x] Entrega de webhooks con cola de reintentos en Redis
 - _Nota:_ "Motor de routing leyendo nodeits desde `NodeRegistry.sol` via viem" se movió a Fase 2 — con un solo nodeit registrado el descubrimiento on-chain da el mismo resultado que el fallback de `BOOTSTRAP_NODE_ENDPOINT`. Ver Fase 2 > Hitos Técnicos.

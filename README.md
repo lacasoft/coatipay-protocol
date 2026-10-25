@@ -16,21 +16,28 @@ separadas.
 
 | Contrato | Dirección |
 |---|---|
-| `SettlementHub` | `0xE0941E1A2b9710fc81547CDfF2e67d2C58eBAF09` |
-| `NodeRegistry` | `0xaaCc18e5585e8Da0C9c1afD0B73255A73E40DC62` |
-| `StakeManager` | `0xB9bB551A56dd549a781a5038F49F48d3aE779E33` |
+| `SettlementHub` | [`0x30CD3cc1bf5539bb627207AF19DF0BF0c11d02A0`](https://sepolia.basescan.org/address/0x30CD3cc1bf5539bb627207AF19DF0BF0c11d02A0#code) |
+| `NodeRegistry` | [`0x98B27eBB9FA8b2433B7ea1A89aBFa0FA1bE97568`](https://sepolia.basescan.org/address/0x98B27eBB9FA8b2433B7ea1A89aBFa0FA1bE97568#code) |
+| `StakeManager` | [`0xE77399c17aC18a08F44De792F91423742183a00A`](https://sepolia.basescan.org/address/0xE77399c17aC18a08F44De792F91423742183a00A#code) |
+| `IntentSignerGate` | [`0x1Baa57B09959642d09394B9AB2A22c24486AD2e2`](https://sepolia.basescan.org/address/0x1Baa57B09959642d09394B9AB2A22c24486AD2e2#code) |
+
+Es el diseño de [ADR-009](audits/adr/009-una-parte-que-falla-no-detiene-a-las-demas.md):
+**una parte que falla no detiene a las demás**.
 
 **Roles, en wallets separadas** — ninguna acumula poder sobre las demás:
 
 | Rol | Wallet | Responsabilidad |
 |---|---|---|
-| Treasury | `0x05CD…8261` | Recibe el 30% de la comisión (**inmutable**) |
-| Guardian | `0xbB51…7Ddf` | Pausa de emergencia + `updateMinStake()` (rotable) |
+| Treasury | `0x05CD…8261` | Cobra el 30% de la comisión (**inmutable**) |
+| Guardian | `0xbB51…7Ddf` | Pausa de emergencia y `minStake` con 7 días de aviso (rotable en dos pasos) |
+| Admin del gate | `0xbB51…7Ddf` | El único que cambia o retira la clave que firma los registros |
+| Clave del gate | `0xEa1d…3ee9` | La API firma con ella cada registro de intent (rotable sin redesplegar) |
 | Nodeit bootstrap | `0xf73e…5da4` | Deposita stake y opera el daemon |
 
 `minStake` inicial: **40 USDC** en testnet (100 USDC en mainnet). El guardian
-puede subirlo conforme la red madura — **nunca bajarlo**, y sin afectar a
-operadores ya registrados.
+puede cambiarlo conforme la red madura, pero **solo con 7 días de aviso
+on-chain** y nunca a cero: nadie se encuentra con el mínimo cambiado por
+sorpresa.
 
 **Fuente canónica de direcciones** (la que deben leer SDKs y paneles):
 [`contracts/deployments/sepolia.json`](contracts/deployments/sepolia.json).
@@ -68,28 +75,30 @@ operadores ya registrados.
 El comercio integra el SDK
         │
         ▼
-Se crea el PaymentIntent  →  el motor de routing elige el mejor nodeit
+Se crea el PaymentIntent  →  queda en la cola de los nodeits
         │
         ▼
 El pagador firma una autorización ERC-3009 (una firma, no una transacción:
         │                                    no necesita ETH para gas)
         ▼
-El nodeit presenta la firma al SettlementHub, que liquida y reparte on-chain
-        │              (el nodeit NUNCA custodia los fondos)
+El nodeit presenta la firma al SettlementHub, que paga al comercio en el acto
+        │              y acredita las comisiones (el nodeit NUNCA custodia los fondos)
         ▼
-Se dispara el webhook  ·  la reputación del nodeit se actualiza
+La API lee el pago de la cadena y dispara el webhook
 ```
 
-Los nodeits depositan stake en USDC para participar. Ese stake es su garantía
-económica: enrutar bien construye reputación, enrutar mal cuesta stake. **Ningún
-comité decide quién entra** — lo decide el protocolo.
+Los nodeits depositan stake en USDC para participar. Ese stake es su fianza y la
+barrera contra identidades falsas: compromete capital propio, sale con un aviso
+de 7 días y **nadie puede confiscarlo**. **Ningún comité decide quién entra** —
+lo decide el protocolo.
 
 ---
 
 ## Comisión y reparto
 
-**1.5% (150 bps)** sobre cada pago liquidado. El comercio recibe el **98.5%**; el
-resto se reparte on-chain en la misma transacción:
+**1.5% (150 bps)** sobre cada pago liquidado. El comercio recibe el **98.5%** en
+la misma transacción del pago; el resto queda acreditado on-chain a quien le
+toca, que lo cobra cuando quiere con `claim()`:
 
 | Destino | Del pago total |
 |---|---|
@@ -99,6 +108,9 @@ resto se reparte on-chain en la misma transacción:
 
 Son $15 por cada $1,000, frente a ~$29 de una pasarela de tarjeta. Sin alta, sin
 cuota mensual, sin mínimos.
+
+Si el emisor de USDC bloquea a un nodeit o a la tesorería, los pagos siguen: su
+comisión espera acreditada hasta que se desbloquee.
 
 Estos números viven **solo** en `SettlementHub.sol`; lo que ves en TypeScript se
 genera desde ahí y el CI falla si se desincronizan.
