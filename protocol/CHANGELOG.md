@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.2.0 — sin publicar
+
+For the contracts of ADR-009 («Una parte que falla no detiene a las demás»).
+**Breaking**: the on-chain id of a payment, and so the nonce the payer signs,
+now depends on the merchant's wallet. Use it with the new deployment only.
+
+### Changed
+
+- **The on-chain id of a payment carries the merchant.** It was
+  `keccak256(utf8(pi_…))`; it is now
+  `keccak256(abi.encode(merchantWallet, keccak256(utf8(pi_…))))`, the same as
+  `SettlementHub.intentIdOf`. The payer's ERC-3009 nonce is that id, so the
+  payer's signature now fixes the merchant too. Computing it needs the
+  merchant's wallet.
+- Shared vectors move to **format 2**: `nonce.json` cases carry `merchant` and
+  `ref`, and its rejected cases add a zero and a malformed wallet;
+  `autorizacion.json` inputs carry `merchant`.
+- `PROTOCOL_VERSION` is `'0.2'`.
+- **`PaymentIntent.merchant_wallet`** (required, nullable): the wallet the
+  payment goes to, fixed at creation; what `intentIdOf` needs.
+
+### Added
+
+- **`intentRef(id)`** and **`intentIdOf(merchant, id)`**: the payment's
+  reference and its on-chain id. Both throw on an empty id, a blank id or an id
+  that is already a bytes32; `intentIdOf` also on a zero or malformed wallet.
+- **`REGISTER_INTENT_TYPES`**, **`settlementHubDomain(chainId, hub)`** and
+  **`RegisterIntentMessage`**: what `intentSigner` signs to authorize a
+  registration. The type string (`REGISTER_INTENT_TYPE`) and the domain name and
+  version are generated from `SettlementHub.sol`, like the fees.
+- **`MIN_STAKE_DELAY`** (seconds, `604800` = 7 days), from `NodeRegistry`: the
+  notice between proposing a new `minStake` and applying it.
+
+The contracts' tests read `vectors/nonce.json` and require `intentIdOf` on
+chain to give every nonce in it.
+
 ## 0.1.7 — 2026-10-22
 
 ### Added

@@ -20,10 +20,20 @@ import {Pausable} from "./Pausable.sol";
 contract NodeRegistry is Pausable, ReentrancyGuard {
     // ── State ─────────────────────────────────────────────────
 
+    /// @notice Plazo entre proponer un `minStake` nuevo y poder aplicarlo
+    ///         (ADR-009 §5). El mismo que un retiro de stake: un nodeit que
+    ///         queda por debajo tiene tiempo de reponer o de irse.
+    uint256 public constant MIN_STAKE_DELAY = 7 days;
+
     /// @notice Minimum USDC stake required to register a node (6 decimals).
-    ///         Settable by guardian (increase-only) to raise the bar as the
-    ///         network grows. Phase 1 testnet default: 40 USDC.
+    ///         Cambia solo con plazo: `proposeMinStake` → `applyMinStake`.
+    ///         Phase 1 testnet default: 40 USDC.
     uint256 public minStake;
+
+    /// @notice `minStake` propuesto y cuándo se puede aplicar. `minStakeEffectiveAt`
+    ///         a cero = no hay propuesta en curso.
+    uint256 public pendingMinStake;
+    uint256 public minStakeEffectiveAt;
 
     IStakeManager public immutable stakeManager;
 
@@ -44,7 +54,9 @@ contract NodeRegistry is Pausable, ReentrancyGuard {
     event NodeUpdated(address indexed operator, string endpoint);
     event NodeDeactivated(address indexed operator);
     event NodeActivated(address indexed operator);
-    event MinStakeIncreased(uint256 previous, uint256 newMin);
+    event MinStakeProposed(uint256 current, uint256 proposed, uint256 effectiveAt);
+    event MinStakeProposalCancelled(uint256 proposed);
+    event MinStakeChanged(uint256 previous, uint256 newMin);
 
     // ── Errors ───────────────────────────────────────────────
 
@@ -53,11 +65,16 @@ contract NodeRegistry is Pausable, ReentrancyGuard {
     error NotRegistered();
     error StakeTooLow(uint256 staked, uint256 minimum);
     error EmptyEndpoint();
-    error MinStakeCannotDecrease(uint256 current, uint256 attempted);
+    error ZeroMinStake();
+    error NoMinStakeProposal();
+    error MinStakeDelayNotElapsed(uint256 effectiveAt);
 
     // ── Constructor ──────────────────────────────────────────
 
     constructor(address _stakeManager, address _guardian, uint256 _minStake) Pausable(_guardian) {
+        // Un mínimo de cero deja entrar a cualquiera sin stake: la barrera
+        // anti-Sybil desaparece.
+        if (_minStake == 0) revert ZeroMinStake();
         stakeManager = IStakeManager(_stakeManager);
         minStake = _minStake;
     }
@@ -125,12 +142,43 @@ contract NodeRegistry is Pausable, ReentrancyGuard {
         emit NodeActivated(msg.sender);
     }
 
-    /// @notice Raise the minimum stake. Guardian-only. Can never decrease —
-    ///         this prevents a malicious guardian from devaluing existing stakes.
-    function setMinStake(uint256 newMin) external onlyGuardian {
-        if (newMin < minStake) revert MinStakeCannotDecrease(minStake, newMin);
-        emit MinStakeIncreased(minStake, newMin);
-        minStake = newMin;
+    /// @notice Propone un `minStake` nuevo, al alza o a la baja (ADR-009 §5).
+    ///         No se aplica hasta pasado `MIN_STAKE_DELAY`: un error o una
+    ///         llave robada se ven venir y se cancelan, en lugar de dejar fuera
+    ///         a todos los nodeits en el acto. Sustituye a la propuesta en
+    ///         curso, si la hay, y su plazo vuelve a empezar.
+    function proposeMinStake(uint256 newMin) external onlyGuardian {
+        if (newMin == 0) revert ZeroMinStake();
+        uint256 effectiveAt = block.timestamp + MIN_STAKE_DELAY;
+        pendingMinStake = newMin;
+        minStakeEffectiveAt = effectiveAt;
+        emit MinStakeProposed(minStake, newMin, effectiveAt);
+    }
+
+    /// @notice Aplica la propuesta cuando vence el plazo. Cualquiera puede
+    ///         llamarlo: el valor y el momento ya están fijados.
+    // `== 0` es el centinela de «no hay propuesta», no una comparación de
+    // saldo ni de tiempo que se pueda manipular.
+    // slither-disable-next-line timestamp,incorrect-equality
+    function applyMinStake() external {
+        uint256 effectiveAt = minStakeEffectiveAt;
+        if (effectiveAt == 0) revert NoMinStakeProposal();
+        if (block.timestamp < effectiveAt) revert MinStakeDelayNotElapsed(effectiveAt);
+        uint256 previous = minStake;
+        minStake = pendingMinStake;
+        pendingMinStake = 0;
+        minStakeEffectiveAt = 0;
+        emit MinStakeChanged(previous, minStake);
+    }
+
+    /// @notice Retira la propuesta en curso.
+    // slither-disable-next-line timestamp
+    function cancelMinStakeProposal() external onlyGuardian {
+        if (minStakeEffectiveAt == 0) revert NoMinStakeProposal();
+        uint256 proposed = pendingMinStake;
+        pendingMinStake = 0;
+        minStakeEffectiveAt = 0;
+        emit MinStakeProposalCancelled(proposed);
     }
 
     // ── Views ─────────────────────────────────────────────────
@@ -139,8 +187,32 @@ contract NodeRegistry is Pausable, ReentrancyGuard {
         return _nodes[operator];
     }
 
+    /// @notice Toda la lista de nodos activos. Crece con el número de nodeits;
+    ///         para leerla por partes, `activeNodeCount` y `getActiveNodesPage`.
     function getActiveNodes() external view returns (address[] memory) {
         return _activeOperators;
+    }
+
+    function activeNodeCount() external view returns (uint256) {
+        return _activeOperators.length;
+    }
+
+    /// @notice Una página de la lista de nodos activos (revisión de octubre,
+    ///         OCT-13): leerla entera en una sola llamada deja de ser posible si
+    ///         crece mucho. Devuelve menos de `limit` al final de la lista, y
+    ///         nada si `offset` ya la pasó. El orden puede cambiar entre llamadas
+    ///         cuando un nodo se desactiva (se rellena el hueco con el último).
+    function getActiveNodesPage(uint256 offset, uint256 limit) external view returns (address[] memory page) {
+        uint256 total = _activeOperators.length;
+        if (offset >= total) return new address[](0);
+        uint256 end = total - offset < limit ? total : offset + limit;
+        page = new address[](end - offset);
+        for (uint256 i = offset; i < end;) {
+            page[i - offset] = _activeOperators[i];
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     function isActive(address operator) external view returns (bool) {

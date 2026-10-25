@@ -14,8 +14,12 @@ contract NodeRegistryHandler is Test {
 
     address[] public actors;
 
-    /// @notice Last observed minStake value; used to verify monotonicity.
-    uint256 public ghost_lastMinStake;
+    /// @notice El minStake que debería regir: solo cambia al aplicar una
+    ///         propuesta madura.
+    uint256 public ghost_minStake;
+
+    /// @notice Se pone a true si una propuesta se aplica antes de tiempo.
+    bool public ghost_appliedEarly;
 
     /// @notice Cumulative count of state-mutating calls.
     uint256 public ghost_calls;
@@ -32,7 +36,7 @@ contract NodeRegistryHandler is Test {
         actors.push(makeAddr("nodeActor4"));
         actors.push(makeAddr("nodeActor5"));
 
-        ghost_lastMinStake = _registry.minStake();
+        ghost_minStake = _registry.minStake();
     }
 
     function _pickActor(uint256 seed) internal view returns (address) {
@@ -104,16 +108,31 @@ contract NodeRegistryHandler is Test {
         ghost_calls++;
     }
 
-    function setMinStakeIncrease(uint256 increaseBy) external {
-        uint256 current = registry.minStake();
-        increaseBy = bound(increaseBy, 0, type(uint128).max);
-        uint256 newMin = current + increaseBy;
-
-        ghost_lastMinStake = current;
-
+    function proposeMinStake(uint256 newMin) external {
+        newMin = bound(newMin, 1, type(uint128).max);
         vm.prank(guardian);
-        registry.setMinStake(newMin);
+        registry.proposeMinStake(newMin);
         ghost_calls++;
+    }
+
+    function cancelMinStakeProposal() external {
+        if (registry.minStakeEffectiveAt() == 0) return;
+        vm.prank(guardian);
+        registry.cancelMinStakeProposal();
+        ghost_calls++;
+    }
+
+    /// Avanza el reloj y trata de aplicar, haya vencido el plazo o no.
+    function warpAndApplyMinStake(uint256 warpBy) external {
+        uint256 effectiveAt = registry.minStakeEffectiveAt();
+        if (effectiveAt == 0) return;
+        vm.warp(block.timestamp + bound(warpBy, 0, 14 days));
+        uint256 pending = registry.pendingMinStake();
+        try registry.applyMinStake() {
+            if (block.timestamp < effectiveAt) ghost_appliedEarly = true;
+            ghost_minStake = pending;
+            ghost_calls++;
+        } catch {}
     }
 
     // ── Accessors ─────────────────────────────────────────────

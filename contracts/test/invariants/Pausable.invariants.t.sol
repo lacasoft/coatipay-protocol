@@ -19,7 +19,7 @@ contract PausableInvariants is Test {
 
     function setUp() public {
         usdc = new MockUSDC();
-        stakeManager = new StakeManager(address(usdc), GUARDIAN);
+        stakeManager = new StakeManager(address(usdc), GUARDIAN, TREASURY);
 
         handler = new PausableHandler(stakeManager, GUARDIAN);
         targetContract(address(handler));
@@ -28,12 +28,22 @@ contract PausableInvariants is Test {
     // ── Invariant: guardian is never zero ────────────────────
     //
     // SCOPE.md §5/Pausable invariants 1 & 2:
-    //   "Zero-guardian rejection: Constructor and transferGuardian() revert
-    //    on address(0)."
+    //   "Zero-guardian rejection: the constructor reverts on address(0), and
+    //    transferGuardian(address(0)) only cancels a pending transfer."
     //   "Bricking guard: There is always at least one non-zero guardian."
 
     function invariant_guardianNeverZero() public view {
         assertNotEq(stakeManager.guardian(), address(0), "guardian became zero");
+    }
+
+    // ── Invariant: the guardian only changes when the new one accepts ──
+    //
+    // ADR-009 §6: a mistyped address never accepts, so it never becomes the
+    // guardian; and nobody but the proposed address can accept.
+
+    function invariant_guardianChangesOnlyByAcceptance() public view {
+        assertEq(stakeManager.guardian(), handler.ghost_guardian(), "guardian changed without acceptance");
+        assertFalse(handler.ghost_strangerAccepted(), "someone other than the proposed guardian accepted");
     }
 
     // ── Invariant: only the guardian can pause/unpause ──────
@@ -56,41 +66,57 @@ contract PausableInvariants is Test {
 
 contract PausableHandler is Test {
     StakeManager public immutable stakeManager;
-    address public immutable guardian;
 
     /// @notice Authoritative shadow of `_paused` — only updated when WE
     ///         (the handler) successfully toggle it via the guardian.
     bool public ghost_pausedNow;
 
+    /// @notice El último guardian que ACEPTÓ el cargo (ADR-009 §6).
+    address public ghost_guardian;
+
+    /// @notice Se pone a true si alguien que no era el propuesto consigue
+    ///         aceptar. No debe pasar nunca.
+    bool public ghost_strangerAccepted;
+
     constructor(StakeManager _stakeManager, address _guardian) {
         stakeManager = _stakeManager;
-        guardian = _guardian;
+        ghost_guardian = _guardian;
     }
 
     function pause() external {
         if (ghost_pausedNow) return; // would revert with ExpectedPause/EnforcedPause
-        vm.prank(guardian);
+        vm.prank(stakeManager.guardian());
         stakeManager.pause();
         ghost_pausedNow = true;
     }
 
     function unpause() external {
         if (!ghost_pausedNow) return;
-        vm.prank(guardian);
+        vm.prank(stakeManager.guardian());
         stakeManager.unpause();
         ghost_pausedNow = false;
     }
 
-    function transferGuardian(address newGuardian) external {
-        // Skip zero (would revert) — we verify the rejection elsewhere
-        if (newGuardian == address(0)) return;
-        // Skip self (no-op but doesn't revert)
-        if (newGuardian == stakeManager.guardian()) return;
-
+    /// Propone cualquier dirección, también una mal escrita o la cero
+    /// (que cancela). Nada cambia hasta que el propuesto acepte.
+    function proposeGuardian(address newGuardian) external {
         vm.prank(stakeManager.guardian());
         stakeManager.transferGuardian(newGuardian);
-        // Note: after this call, `guardian` (the immutable in this handler)
-        // is stale. The pause() and unpause() above would now revert. The
-        // ghost flag stays accurate because we only update on success.
+    }
+
+    function acceptGuardian() external {
+        address pending = stakeManager.pendingGuardian();
+        if (pending == address(0)) return;
+        vm.prank(pending);
+        stakeManager.acceptGuardian();
+        ghost_guardian = pending;
+    }
+
+    function acceptByStranger(address stranger) external {
+        if (stranger == stakeManager.pendingGuardian()) return;
+        vm.prank(stranger);
+        try stakeManager.acceptGuardian() {
+            ghost_strangerAccepted = true;
+        } catch {}
     }
 }

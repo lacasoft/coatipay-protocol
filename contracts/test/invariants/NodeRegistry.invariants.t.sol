@@ -22,7 +22,7 @@ contract NodeRegistryInvariants is Test {
 
     function setUp() public {
         usdc = new MockUSDC();
-        stakeManager = new StakeManager(address(usdc), GUARDIAN);
+        stakeManager = new StakeManager(address(usdc), GUARDIAN, TREASURY);
 
         registry = new NodeRegistry(address(stakeManager), GUARDIAN, INITIAL_MIN_STAKE);
 
@@ -103,17 +103,16 @@ contract NodeRegistryInvariants is Test {
         }
     }
 
-    // ── Invariant: minStake is monotonically non-decreasing ──
+    // ── Invariant: minStake only changes with notice ─────────
     //
-    // SCOPE.md §5/NodeRegistry invariant 6.
-    //
-    // The setMinStake(newMin) function reverts if newMin < current. We
-    // verify the current value is >= our ghost tracker. Since the handler
-    // only calls setMinStake with increases, the ghost should match.
+    // SCOPE.md §5/NodeRegistry invariant 6, as ADR-009 §5 rewrote it: minStake
+    // goes up or down, but only through a proposal that waited
+    // MIN_STAKE_DELAY, and it is never zero.
 
-    function invariant_minStakeMonotonic() public view {
-        assertGe(registry.minStake(), handler.ghost_lastMinStake(), "minStake decreased");
-        assertGe(registry.minStake(), INITIAL_MIN_STAKE, "minStake fell below initial value");
+    function invariant_minStakeChangesOnlyWithNotice() public view {
+        assertEq(registry.minStake(), handler.ghost_minStake(), "minStake changed outside a matured proposal");
+        assertFalse(handler.ghost_appliedEarly(), "a proposal applied before its delay");
+        assertGt(registry.minStake(), 0, "minStake became zero");
     }
 
     // ── Invariant: stakeManager wiring immutable ─────────────

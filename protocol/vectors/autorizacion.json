@@ -1,11 +1,12 @@
 {
-  "formato": 1,
+  "formato": 2,
   "descripcion": "Autorizaciones ERC-3009 ReceiveWithAuthorization. Dominio EIP-712: el del USDC de la red (name \"USDC\" en Base Sepolia y \"USD Coin\" en Base, version \"2\"). La clave de prueba es pública (cuenta 0 de Anvil): la firma es determinista (RFC 6979) y con s bajo.",
   "casos": [
     {
       "entrada": {
         "chain": "base-sepolia",
         "intent_id": "pi_V1StGXR8_Z5jdHi6B-myT",
+        "merchant": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
         "amount": "1500000",
         "payer_private_key": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
         "settlement_hub": "0x00000000000000000000000000000000000c0a71",
@@ -26,16 +27,16 @@
           "value": "1500000",
           "validAfter": "0",
           "validBefore": "1790000000",
-          "nonce": "0x5276333db799c2ddc032ecc93c3ad46c92af2d5143f1a7072cff448bebdd15f1"
+          "nonce": "0x8d6b79b789b16fc4047c1335c0a437c94c27a5ee506986ec091a7ca4ead8e280"
         },
-        "digest": "0x6dc0a40a5c3354baf58bc3bebf94808e44dca5fdf065c66bd8a1c5e0416f5c5c",
-        "signature": "0x011da8008b7baac5c3d54634ad209769f00b57eb05cfe01238e8c14f78e2f5ae1d836341309f6ae66eb84fe460131c1a4829858d4274631b5fbe28ce301e6c341b",
+        "digest": "0x21c992b767b1bd0a9ad2a8a7a26db465b47cd48b2fac36c167155d88318cdc61",
+        "signature": "0xe1c413d45a2fb276d2d30bb89905e8a921ace5d43e32656de228d254fdd552e309e297196475068d87837189533bec8f856302c4125bb04ab299f2fd0571cd0a1b",
         "api_body": {
           "payer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
           "valid_after": "0",
           "valid_before": "1790000000",
-          "nonce": "0x5276333db799c2ddc032ecc93c3ad46c92af2d5143f1a7072cff448bebdd15f1",
-          "signature": "0x011da8008b7baac5c3d54634ad209769f00b57eb05cfe01238e8c14f78e2f5ae1d836341309f6ae66eb84fe460131c1a4829858d4274631b5fbe28ce301e6c341b"
+          "nonce": "0x8d6b79b789b16fc4047c1335c0a437c94c27a5ee506986ec091a7ca4ead8e280",
+          "signature": "0xe1c413d45a2fb276d2d30bb89905e8a921ace5d43e32656de228d254fdd552e309e297196475068d87837189533bec8f856302c4125bb04ab299f2fd0571cd0a1b"
         }
       }
     },
@@ -43,6 +44,7 @@
       "entrada": {
         "chain": "base",
         "intent_id": "pi_V1StGXR8_Z5jdHi6B-myT",
+        "merchant": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
         "amount": "1500000",
         "payer_private_key": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
         "settlement_hub": "0x00000000000000000000000000000000000c0a71",
@@ -63,16 +65,16 @@
           "value": "1500000",
           "validAfter": "0",
           "validBefore": "1790000000",
-          "nonce": "0x5276333db799c2ddc032ecc93c3ad46c92af2d5143f1a7072cff448bebdd15f1"
+          "nonce": "0x8d6b79b789b16fc4047c1335c0a437c94c27a5ee506986ec091a7ca4ead8e280"
         },
-        "digest": "0xf7679940c0510c92857f2e590bfd3fbd0a4ed0ffbabeb975957daa150d599841",
-        "signature": "0x66774bc0644ebbb69debb2fd7f9c00c70fe34bec2e5f2f722c28b9edf1ec36b667d9f1a5ce09b7f57dc445ec2ef083684379606167ee09131d32a0df3110092b1b",
+        "digest": "0xa942a7766e809ddd4fdb1bda20758e13ca54167dc0f0184ff776dae3fefd0871",
+        "signature": "0x67e089dc753c618d4ac63ea7a0a76e9f097a739510461e97036e980f3cc5011032444c975a2b8f3619770e1ab1de62953c2e8dd3090c79b22ff89a8ed787517b1c",
         "api_body": {
           "payer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
           "valid_after": "0",
           "valid_before": "1790000000",
-          "nonce": "0x5276333db799c2ddc032ecc93c3ad46c92af2d5143f1a7072cff448bebdd15f1",
-          "signature": "0x66774bc0644ebbb69debb2fd7f9c00c70fe34bec2e5f2f722c28b9edf1ec36b667d9f1a5ce09b7f57dc445ec2ef083684379606167ee09131d32a0df3110092b1b"
+          "nonce": "0x8d6b79b789b16fc4047c1335c0a437c94c27a5ee506986ec091a7ca4ead8e280",
+          "signature": "0x67e089dc753c618d4ac63ea7a0a76e9f097a739510461e97036e980f3cc5011032444c975a2b8f3619770e1ab1de62953c2e8dd3090c79b22ff89a8ed787517b1c"
         }
       }
     },
@@ -80,6 +82,7 @@
       "entrada": {
         "chain": "base-sepolia",
         "intent_id": "pi_a",
+        "merchant": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
         "amount": "300000",
         "payer_private_key": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
         "settlement_hub": "0x00000000000000000000000000000000000c0a71",
@@ -100,16 +103,16 @@
           "value": "300000",
           "validAfter": "0",
           "validBefore": "1790000000",
-          "nonce": "0x572cae8716755464b947556be17e9f74cf4f81c79a1feb864d6a1ff6a61ac30d"
+          "nonce": "0xc4483a8f955d835b31b219bbcd2e0edf6bb256506b81deada3dc375ebcd48a9e"
         },
-        "digest": "0xe828ba0243bb9c5e50ab15177fcb98f941f0209f205d9c62ab89df71a900ab84",
-        "signature": "0x102a7271b13f24f26b82ee72d8d950c96a2a5d61a449169dbda9b40df2bec4c67ff977e99c8d517ac31e9abf026cf486e34c3a08498731b3e5cb2cfa976129eb1b",
+        "digest": "0xb886138b084458b43e34bf273ecaff24e37995f4498efad37851ff8a444da25c",
+        "signature": "0x7f3b34a50ce15a94fa8557d445be2805296a82501fadf9373291c7ae8e5ea3f0464f846765716b7cab9684a0d82f6aa8217665ba67d4ba3e94258be87d90e1d31c",
         "api_body": {
           "payer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
           "valid_after": "0",
           "valid_before": "1790000000",
-          "nonce": "0x572cae8716755464b947556be17e9f74cf4f81c79a1feb864d6a1ff6a61ac30d",
-          "signature": "0x102a7271b13f24f26b82ee72d8d950c96a2a5d61a449169dbda9b40df2bec4c67ff977e99c8d517ac31e9abf026cf486e34c3a08498731b3e5cb2cfa976129eb1b"
+          "nonce": "0xc4483a8f955d835b31b219bbcd2e0edf6bb256506b81deada3dc375ebcd48a9e",
+          "signature": "0x7f3b34a50ce15a94fa8557d445be2805296a82501fadf9373291c7ae8e5ea3f0464f846765716b7cab9684a0d82f6aa8217665ba67d4ba3e94258be87d90e1d31c"
         }
       }
     }

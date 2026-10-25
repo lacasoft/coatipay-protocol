@@ -16,6 +16,7 @@ import {MockUSDC} from "../../mocks/MockUSDC.sol";
 contract StakeManagerHandler is Test {
     StakeManager public immutable stakeManager;
     MockUSDC public immutable usdc;
+    address public immutable guardian;
 
     address[] public actors;
 
@@ -36,9 +37,19 @@ contract StakeManagerHandler is Test {
     ///         signal that the fuzzer is actually doing work.
     uint256 public ghost_calls;
 
-    constructor(StakeManager _stakeManager, MockUSDC _usdc) {
+    /// @notice USDC enviado al contrato por error, sin `deposit`.
+    uint256 public ghost_donated;
+
+    /// @notice Lo que `sweepSurplus` envió a la tesorería.
+    uint256 public ghost_swept;
+
+    /// @notice Se pone a true si un retiro con el plazo vencido falla.
+    bool public ghost_maturedWithdrawalFailed;
+
+    constructor(StakeManager _stakeManager, MockUSDC _usdc, address _guardian) {
         stakeManager = _stakeManager;
         usdc = _usdc;
+        guardian = _guardian;
 
         // 5 fixed actors — small enough to keep state tractable, large
         // enough to exercise multi-operator interactions.
@@ -70,6 +81,7 @@ contract StakeManagerHandler is Test {
     function deposit(uint256 actorSeed, uint256 amount) external {
         address actor = _pickActor(actorSeed);
         amount = bound(amount, 1, 10_000_000_000); // 1 USDC base unit to 10k USDC
+        if (stakeManager.paused()) return; // los depósitos sí se frenan en pausa
 
         ghost_lastBalance[actor] = _balanceOf(actor);
 
@@ -108,13 +120,38 @@ contract StakeManagerHandler is Test {
 
         ghost_lastBalance[actor] = _balanceOf(actor);
 
+        bool matured = block.timestamp >= stakeManager.getStakeInfo(actor).unlockAt;
+
         vm.prank(actor);
         try stakeManager.executeWithdrawal() {
             ghost_totalWithdrawn += pending;
             ghost_calls++;
         } catch {
-            // Timelock not yet expired — fine, no state change.
+            // Timelock not yet expired — fine, no state change. Pero si ya
+            // venció, nada —tampoco la pausa— puede impedirlo.
+            if (matured) ghost_maturedWithdrawalFailed = true;
         }
+    }
+
+    function togglePause() external {
+        vm.prank(guardian);
+        if (stakeManager.paused()) stakeManager.unpause();
+        else stakeManager.pause();
+    }
+
+    /// Alguien envía USDC al contrato directamente, por error.
+    function donate(uint256 amount) external {
+        amount = bound(amount, 1, 10_000_000_000);
+        usdc.mint(address(stakeManager), amount);
+        ghost_donated += amount;
+    }
+
+    function sweepSurplus() external {
+        uint256 balance = usdc.balanceOf(address(stakeManager));
+        uint256 held = stakeManager.totalHeld();
+        if (balance <= held) return;
+        stakeManager.sweepSurplus();
+        ghost_swept += balance - held;
     }
 
     // ── Accessors for invariants ──────────────────────────────

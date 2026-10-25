@@ -19,7 +19,7 @@
 import { createHmac } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { domainSeparator, hashTypedData, type Hex, keccak256, toHex } from 'viem'
+import { domainSeparator, hashTypedData } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { docUrl, ERROR_CATALOG, type ErrorCategory, type ErrorDefinition } from '../src/errors'
 import {
@@ -27,39 +27,54 @@ import {
   type SupportedChain,
   usdcDomain,
 } from '../src/erc3009'
+import { intentIdOf, intentRef } from '../src/intent'
 
 export const DIRECTORIO = resolve(__dirname, '../vectors')
 
 /// Versión del formato de los vectores. Sube si cambia la forma de un fichero.
-const FORMATO = 1
+/// 2: el nonce lleva dentro la cartera del comercio (ADR-009 §3).
+const FORMATO = 2
 
 // ── nonce ──────────────────────────────────────────────────────────
 
-/// El nonce de la autorización ES el id on-chain del cobro: keccak256 de los
-/// bytes UTF-8 de su id. Nunca del id interpretado como hexadecimal.
-export function nonceDe(intentId: string): Hex {
-  return keccak256(toHex(intentId))
-}
+/// Carteras de comercio de prueba: las cuentas 1 y 2 de Anvil/Hardhat,
+/// públicas. Dos, para que se vea que el mismo cobro con otro comercio da
+/// otro nonce. La segunda va en minúsculas: la cartera se normaliza.
+const COMERCIO = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as const
+const OTRO_COMERCIO = '0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc' as const
 
 function vectoresNonce() {
-  const ids = [
-    'pi_V1StGXR8_Z5jdHi6B-myT',
-    'pi_a',
-    '0xdeadbeef', // parece hexadecimal: se hashea como texto
-    'pi_ñandú', // no ASCII: UTF-8
+  const casos: [string, string][] = [
+    ['pi_V1StGXR8_Z5jdHi6B-myT', COMERCIO],
+    ['pi_V1StGXR8_Z5jdHi6B-myT', OTRO_COMERCIO], // mismo cobro, otro comercio: otro nonce
+    ['pi_a', COMERCIO],
+    ['0xdeadbeef', COMERCIO], // parece hexadecimal: se hashea como texto
+    ['pi_ñandú', COMERCIO], // no ASCII: UTF-8
   ]
   return {
     formato: FORMATO,
     descripcion:
-      'El nonce de la autorización ERC-3009 es el id on-chain del cobro: keccak256 de los bytes UTF-8 del id. Nunca del id leído como hexadecimal. Los ids de `rechazados` se rechazan con un error, sin hashearlos: su hash daría un nonce que parece válido y no es el de ningún cobro.',
-    casos: ids.map((intent_id) => ({ intent_id, nonce: nonceDe(intent_id) })),
+      'El nonce de la autorización ERC-3009 es el id on-chain del cobro (ADR-009 §3): keccak256(abi.encode(merchant, ref)), donde merchant es la cartera del comercio (address, 32 bytes con ceros a la izquierda) y ref = keccak256 de los bytes UTF-8 del id del cobro. Nunca del id leído como hexadecimal. Es lo que calcula SettlementHub.intentIdOf. Los casos de `rechazados` se rechazan con un error, sin hashear: su hash daría un nonce que parece válido y no es el de ningún cobro.',
+    casos: casos.map(([intent_id, merchant]) => ({
+      intent_id,
+      merchant,
+      ref: intentRef(intent_id),
+      nonce: intentIdOf(merchant, intent_id),
+    })),
     rechazados: [
-      { intent_id: '', motivo: 'vacío' },
-      { intent_id: '   ', motivo: 'solo espacios' },
+      { intent_id: '', merchant: COMERCIO, motivo: 'id vacío' },
+      { intent_id: '   ', merchant: COMERCIO, motivo: 'id de solo espacios' },
       {
         intent_id: `0x${'ab'.repeat(32)}`,
-        motivo: 'ya es un id on-chain (bytes32): hashearlo otra vez daría otro nonce',
+        merchant: COMERCIO,
+        motivo: 'el id ya es un id on-chain (bytes32): hashearlo otra vez daría otro nonce',
       },
+      {
+        intent_id: 'pi_a',
+        merchant: '0x0000000000000000000000000000000000000000',
+        motivo: 'cartera cero: el hub no registra un comercio cero',
+      },
+      { intent_id: 'pi_a', merchant: '0x1234', motivo: 'la cartera no es una dirección' },
     ],
   }
 }
@@ -86,7 +101,7 @@ async function vectoresAutorizacion() {
       value: importe,
       validAfter: 0n,
       validBefore: 1_790_000_000n,
-      nonce: nonceDe(intentId),
+      nonce: intentIdOf(COMERCIO, intentId),
     }
     const tipado = {
       domain: dominio,
@@ -99,6 +114,7 @@ async function vectoresAutorizacion() {
       entrada: {
         chain: red,
         intent_id: intentId,
+        merchant: COMERCIO,
         amount: importe.toString(),
         payer_private_key: CLAVE_DE_PRUEBA,
         settlement_hub: HUB_DE_PRUEBA,

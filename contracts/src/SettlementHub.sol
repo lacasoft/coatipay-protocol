@@ -4,17 +4,24 @@ pragma solidity ^0.8.25;
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptography/SignatureChecker.sol";
 import {IERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import {IERC20 as IERC20Any} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
 import {IERC3009} from "./interfaces/IERC3009.sol";
 import {Pausable} from "./Pausable.sol";
 
 /// @title  SettlementHub
 /// @notice Trustless on-chain settlement for OpenRelay payments. Receives
-///         payer's USDC, atomically splits into:
-///          98.50% → merchant
-///           1.05% → operator (the routing node that registered the intent)
-///           0.45% → treasury
-/// @dev    See ADR-001 + ADR-002 for the full design rationale.
+///         payer's USDC and, in the same transaction:
+///          98.50% → merchant, transferred at once
+///           1.05% → operator (the routing node that registered the intent),
+///                   credited — claimed later with `claim()`
+///           0.45% → treasury, credited — claimed with `claimFor(treasury)`
+/// @dev    See ADR-001 + ADR-002 for the full design rationale, and ADR-009
+///         for why the fees are credited instead of pushed: if USDC blocks
+///         the operator or the treasury, payments keep settling and their
+///         fees wait in the hub until they can be claimed. Before, one
+///         blocked party made every payment revert.
 ///         ADR-002 recalibrated the fee from 50 bps (80/20) to 100 bps
 ///         (70/30) for sustainable operator + treasury economics.
 ///         ADR-005 later raised the total to 150 bps, keeping the 70/30
@@ -22,14 +29,19 @@ import {Pausable} from "./Pausable.sol";
 ///
 ///         Trust model: replaces the prior "operator-side daemon forwards
 ///         funds" pattern with on-chain enforcement. Operator can no longer
-///         steal payments by withholding forwarding — the contract executes
-///         the split atomically as part of the payment transaction.
+///         steal payments by withholding forwarding — the contract pays the
+///         merchant and credits the fees in the payment transaction itself.
 ///
-///         Pause semantics: `pause()` blocks new intent registration but
-///         does NOT block payments on existing intents. Payers in flight
-///         complete; new commitments are halted. Existing intents expire
-///         normally per their `expiresAt`.
+///         Pause semantics: `pause()` blocks intent registration. The
+///         payment functions are not paused, so an intent that is already
+///         registered can still be paid. But the nodeit registers each intent
+///         right before settling it, so while paused the payments whose
+///         intents were not registered yet wait — and expire if the pause
+///         outlasts their authorization. Claims and sweeps keep working:
+///         the pause never holds anyone's money.
 contract SettlementHub is Pausable, ReentrancyGuard {
+    using SafeERC20 for IERC20Any;
+
     // ── Constants ────────────────────────────────────────────
 
     /// @notice Total protocol fee in basis points (1 bp = 0.01%).
@@ -77,19 +89,25 @@ contract SettlementHub is Pausable, ReentrancyGuard {
 
     /// @notice Única dirección cuya firma autoriza a registrar un intent.
     ///
-    ///         INMUTABLE a propósito: si el guardian pudiera cambiarla tendría
-    ///         capacidad de atar pagos en vuelo a un comercio de su elección,
-    ///         que es exactamente la potestad de mover fondos que este diseño
-    ///         le niega.
+    ///         INMUTABLE a propósito: el guardian no puede cambiar quién
+    ///         autoriza registros.
     ///
-    ///         Puede ser una cartera normal o un **contrato ERC-1271**, y en
-    ///         producción debe ser un multisig. La verificación usa
-    ///         `SignatureChecker`, que acepta ambas. Con un multisig la
-    ///         dirección sigue siendo inmutable —el guardian no la toca— pero
-    ///         sus firmantes se rotan por dentro, así que una llave
-    ///         comprometida ya no obliga a redesplegar el hub, y hace falta
-    ///         más de una para autorizar.
+    ///         Puede ser una cartera normal o un **contrato ERC-1271**; la
+    ///         verificación usa `SignatureChecker`, que acepta ambas. En
+    ///         producción es un `IntentSignerGate` (ADR-009 §4): la API firma
+    ///         con una clave caliente, y solo un admin frío puede cambiarla,
+    ///         sin redesplegar el hub. Y como el `intentId` lleva dentro al
+    ///         comercio (`intentIdOf`), ni quien controle este firmante puede
+    ///         atar a otro comercio un pago que el pagador ya firmó.
     address public immutable intentSigner;
+
+    /// @notice Comisiones acreditadas y aún no reclamadas, por cuenta: la de
+    ///         cada operador y la de la tesorería (ADR-009 §1).
+    mapping(address => uint256) public accrued;
+
+    /// @notice Suma de `accrued`. El hub nunca tiene menos USDC que esto; lo
+    ///         que tenga por encima llegó por error y sale con `sweepSurplus`.
+    uint256 public totalAccrued;
 
     bytes32 private constant _DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
@@ -100,7 +118,7 @@ contract SettlementHub is Pausable, ReentrancyGuard {
 
     enum IntentStatus {
         Registered, // 0 — intent declared, awaiting payment
-        Settled, // 1 — paid + atomically split
+        Settled, // 1 — paid: merchant paid, fees credited
         Cancelled // 2 — registered, never paid, expired and pruned
     }
 
@@ -119,8 +137,9 @@ contract SettlementHub is Pausable, ReentrancyGuard {
         IntentStatus status;
     }
 
-    /// @notice intentId → Intent. Keys are keccak256 of off-chain identifiers
-    ///         (e.g. the API's `pi_xxx` string converted to bytes32).
+    /// @notice intentId → Intent. Keys are `intentIdOf(merchant, ref)`, where
+    ///         `ref` identifies the payment off-chain (e.g. keccak256 of the
+    ///         API's `pi_xxx` string).
     mapping(bytes32 => Intent) private _intents;
 
     /// @notice ERC-3009 authorization parameters wrapped as a struct so the
@@ -129,8 +148,12 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     /// @notice Un registro de intent autorizado por `intentSigner`.
     ///         Se agrupa en un struct en vez de arreglos paralelos: elimina la
     ///         clase de fallo de longitudes descuadradas y evita agotar la pila.
+    ///
+    ///         No lleva el `intentId`: lo calcula el hub con
+    ///         `intentIdOf(merchant, ref)` (ADR-009 §3). La firma de
+    ///         `intentSigner` cubre ese `intentId` calculado.
     struct IntentRegistration {
-        bytes32 intentId;
+        bytes32 ref;
         address merchant;
         address operator;
         uint256 amount;
@@ -166,6 +189,17 @@ contract SettlementHub is Pausable, ReentrancyGuard {
 
     event IntentCancelled(bytes32 indexed intentId);
 
+    /// @notice Un registro de `registerIntentBatch` no pasó y se saltó; el
+    ///         resto del lote siguió. `reason` es el error con que revirtió.
+    event IntentRegistrationSkipped(bytes32 indexed intentId, bytes reason);
+
+    /// @notice `account` cobró las comisiones que tenía acreditadas.
+    event FeesClaimed(address indexed account, uint256 amount);
+
+    /// @notice Lo que sobraba de `token` se acreditó (USDC) o se envió (otro
+    ///         token) a la tesorería.
+    event SurplusSwept(address indexed token, uint256 amount);
+
     /// @notice Emitted once at construction. Indexers and auditors use this
     ///         to verify the protocol's economic constants without reading
     ///         the bytecode.
@@ -191,6 +225,10 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     error InvalidExpiry();
     error BatchTooLarge();
     error Forbidden();
+    error NothingToClaim();
+    error NothingToSweep();
+    /// @notice El USDC se rescata con `sweepSurplus()`, que respeta lo acreditado.
+    error UseSweepSurplus();
 
     // ── Constructor ──────────────────────────────────────────
 
@@ -224,18 +262,18 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     ///      confiable— elegía la dirección del comercio y podía ponerse a sí
     ///      mismo, quedándose el pago aunque la autorización del pagador
     ///      estuviera correctamente atada a su intent.
-    function _requireSignedRegistration(IntentRegistration calldata reg) internal view {
+    function _requireSignedRegistration(bytes32 intentId, IntentRegistration calldata reg) internal view {
         bytes32 structHash = keccak256(
-            abi.encode(REGISTER_INTENT_TYPEHASH, reg.intentId, reg.merchant, reg.operator, reg.amount, reg.expiresAt)
+            abi.encode(REGISTER_INTENT_TYPEHASH, intentId, reg.merchant, reg.operator, reg.amount, reg.expiresAt)
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
         // SignatureChecker acepta tanto una cartera normal (ECDSA) como un
-        // contrato que implemente ERC-1271 — un multisig, por ejemplo. Importa
-        // porque `intentSigner` es inmutable: con una sola clave, perderla o
-        // que se filtre obliga a redesplegar. Apuntando a un multisig, la
-        // dirección sigue siendo inmutable pero **sus firmantes se pueden
-        // rotar por dentro**, y hace falta más de una llave para autorizar.
-        // Es el mismo mecanismo que usa USDC para las smart wallets.
+        // contrato que implemente ERC-1271 — `IntentSignerGate`, en
+        // producción. Importa porque `intentSigner` es inmutable: con una sola
+        // clave, perderla o que se filtre obliga a redesplegar. Apuntando a un
+        // contrato, la dirección sigue siendo inmutable pero **la clave que
+        // firma se puede rotar por dentro**. Es el mismo mecanismo que usa
+        // USDC para las smart wallets.
         if (!SignatureChecker.isValidSignatureNow(intentSigner, digest, reg.signature)) {
             revert InvalidIntentSignature();
         }
@@ -243,29 +281,50 @@ contract SettlementHub is Pausable, ReentrancyGuard {
 
     // ── Intent registration ──────────────────────────────────
 
-    /// @notice Register an intent that a payer can later fulfill.
-    ///         Anyone can call this; the `operator` address is recorded and
+    /// @notice El `intentId` de un cobro: el comercio y la referencia del
+    ///         cobro fuera de la cadena, juntos (ADR-009 §3).
+    ///
+    ///         El pagador firma su autorización ERC-3009 con
+    ///         `nonce == intentId`, así que su firma fija también el comercio:
+    ///         registrar ese mismo `intentId` con otro comercio es imposible,
+    ///         porque daría otro `intentId`.
+    function intentIdOf(address merchant, bytes32 ref) public pure returns (bytes32) {
+        return keccak256(abi.encode(merchant, ref));
+    }
+
+    /// @notice Register an intent that a payer can later fulfill. Requires a
+    ///         registration signed by `intentSigner`; the `operator` it names
     ///         is the only party that earns the operator fee on settlement.
-    ///         A malicious "registrar" pays gas with no fee return — the
-    ///         economic incentive deters spam.
-    /// @dev    Reverts if `intentId` already exists (idempotent — second
-    ///         call cannot overwrite).
-    /// @dev    Pause semantics (Q5/ADR-001): blocked when paused; existing
-    ///         intents can still be paid via `payIntent` / `payIntentWithPermit`.
-    function registerIntent(IntentRegistration calldata reg) external whenNotPaused nonReentrant {
-        _requireSignedRegistration(reg);
-        _registerIntent(reg.intentId, reg.merchant, reg.operator, reg.amount, reg.expiresAt);
+    /// @dev    Reverts if the intent already exists (a second call cannot
+    ///         overwrite).
+    /// @dev    Blocked when paused (see the contract-level pause semantics).
+    function registerIntent(IntentRegistration calldata reg)
+        external
+        whenNotPaused
+        nonReentrant
+        returns (bytes32 intentId)
+    {
+        intentId = intentIdOf(reg.merchant, reg.ref);
+        _requireSignedRegistration(intentId, reg);
+        _registerIntent(intentId, reg.merchant, reg.operator, reg.amount, reg.expiresAt);
     }
 
     /// @notice Register multiple intents in one transaction. Designed for
     ///         x402 micropayments where per-intent gas would otherwise
-    ///         dominate the operator's 1.05% fee. Skip-on-conflict semantics:
-    ///         intents already registered are silently skipped (the rest
-    ///         proceed). Returns count of successful registrations.
-    /// @dev    All input arrays must have the same length, else reverts.
-    /// @dev    Micropayment cost note: even batched, x402-class flows
-    ///         (sub-cent payments) require gas abstraction (ADR-002 Phase B,
-    ///         Circle Paymaster) to be economically viable for the payer.
+    ///         dominate the operator's 1.05% fee. Returns count of successful
+    ///         registrations.
+    ///
+    ///         Skip-on-failure, like the payment batch (ADR-009 §2):
+    ///          - an intent that is already registered is skipped silently —
+    ///            it is the normal case of a retried batch;
+    ///          - a registration that would revert (bad signature, expiry out
+    ///            of range, zero amount…) is skipped with
+    ///            `IntentRegistrationSkipped`, and the rest of the batch is
+    ///            registered. Before, one invalid registration reverted the
+    ///            whole batch and every payment in it.
+    /// @dev    Each registration runs in a self-call wrapped in try/catch —
+    ///         the same pattern, and the same layered defenses, as
+    ///         `payIntentBatchWithAuthorization` (see there).
     function registerIntentBatch(IntentRegistration[] calldata regs)
         external
         whenNotPaused
@@ -276,20 +335,34 @@ contract SettlementHub is Pausable, ReentrancyGuard {
         if (len > MAX_BATCH_SIZE) revert BatchTooLarge();
 
         for (uint256 i; i < len;) {
-            // Skip-on-conflict: los ya registrados se saltan en silencio.
-            if (_intents[regs[i].intentId].merchant == address(0)) {
-                // La firma se exige por elemento: el lote no puede ser un
-                // atajo para registrar sin autorización.
-                _requireSignedRegistration(regs[i]);
-                _registerIntent(regs[i].intentId, regs[i].merchant, regs[i].operator, regs[i].amount, regs[i].expiresAt);
-                unchecked {
-                    ++registered;
+            bytes32 intentId = intentIdOf(regs[i].merchant, regs[i].ref);
+            if (_intents[intentId].merchant == address(0)) {
+                // slither-disable-next-line calls-loop
+                try this.registerOneSelfCall(regs[i]) {
+                    unchecked {
+                        ++registered;
+                    }
+                } catch (bytes memory reason) {
+                    emit IntentRegistrationSkipped(intentId, reason);
                 }
             }
             unchecked {
                 ++i;
             }
         }
+    }
+
+    /// @notice Self-call entry point used by `registerIntentBatch` to enable
+    ///         per-element try/catch.
+    /// @dev    Guarded by `msg.sender == address(this)` — equivalent to
+    ///         internal at the access-control level. La firma se exige por
+    ///         elemento: el lote no puede ser un atajo para registrar sin
+    ///         autorización.
+    function registerOneSelfCall(IntentRegistration calldata reg) external {
+        if (msg.sender != address(this)) revert Forbidden();
+        bytes32 intentId = intentIdOf(reg.merchant, reg.ref);
+        _requireSignedRegistration(intentId, reg);
+        _registerIntent(intentId, reg.merchant, reg.operator, reg.amount, reg.expiresAt);
     }
 
     function _registerIntent(bytes32 intentId, address merchant, address operator, uint256 amount, uint64 expiresAt)
@@ -321,7 +394,7 @@ contract SettlementHub is Pausable, ReentrancyGuard {
 
     /// @notice Pay a registered intent in 2 transactions: caller must have
     ///         already approved this contract for `intent.amount` USDC.
-    ///         Atomically splits funds and marks intent as Settled.
+    ///         Pays the merchant, credits the fees and marks the intent Settled.
     /// @dev    Pause semantics (Q5): NOT blocked when paused. Allows payers
     ///         in flight to complete even if guardian halts new commitments.
     function payIntent(bytes32 intentId) external nonReentrant {
@@ -369,7 +442,8 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     ///         The payer signs an EIP-712 `ReceiveWithAuthorization` message
     ///         off-chain (FREE — no gas). Anyone (typically the nodeit operator)
     ///         submits this tx and pays the gas in ETH. USDC pulls `intent.amount`
-    ///         from the payer to this contract; the atomic split happens immediately.
+    ///         from the payer to this contract; the merchant is paid at once and the
+    ///         fees are credited.
     /// @dev    Uses `receiveWithAuthorization` (NOT `transferWithAuthorization`)
     ///         because USDC enforces `msg.sender == to` for the receive variant —
     ///         this prevents the on-chain front-running attack where an observer
@@ -456,9 +530,10 @@ contract SettlementHub is Pausable, ReentrancyGuard {
         _payAndSettleViaAuth(auth);
     }
 
-    /// @notice Internal settlement logic shared by both payment paths.
-    ///         CEI ordering: validate (Checks), update status (Effects),
-    ///         then 3 USDC transfers (Interactions).
+    /// @notice Internal settlement logic shared by the approve and permit
+    ///         payment paths. CEI ordering: validate (Checks), mark the intent
+    ///         settled and credit the fees (Effects), then pull from the payer
+    ///         and pay the merchant (Interactions).
     function _payAndSettle(bytes32 intentId, address payer) internal {
         Intent storage intent = _intents[intentId];
         // Cache to memory to avoid 4+ SLOADs in this function body.
@@ -468,28 +543,42 @@ contract SettlementHub is Pausable, ReentrancyGuard {
         // slither-disable-next-line timestamp
         if (block.timestamp >= snap.expiresAt) revert IntentExpired();
 
-        // Effects: mark as settled BEFORE any external call.
+        // Effects: mark as settled and credit the fees BEFORE any external call.
         intent.status = IntentStatus.Settled;
-
-        // Compute split. uint96 amount widens to uint256 implicitly.
         uint256 amount = snap.amount;
-        uint256 treasuryFee = (amount * TREASURY_SHARE_BPS) / BPS_DENOMINATOR;
-        uint256 operatorFee = (amount * OPERATOR_SHARE_BPS) / BPS_DENOMINATOR;
-        uint256 merchantAmount = amount - treasuryFee - operatorFee;
+        (uint256 merchantAmount, uint256 operatorFee, uint256 treasuryFee) = _credit(snap.operator, amount);
 
-        // Interactions: pull from payer, then 3 transfers.
+        // Interactions: pull from payer, then pay the merchant.
         bool ok = usdc.transferFrom(payer, address(this), amount);
         if (!ok) revert TransferFailed();
-
         ok = usdc.transfer(snap.merchant, merchantAmount);
-        if (!ok) revert TransferFailed();
-        ok = usdc.transfer(snap.operator, operatorFee);
-        if (!ok) revert TransferFailed();
-        ok = usdc.transfer(treasury, treasuryFee);
         if (!ok) revert TransferFailed();
 
         // slither-disable-next-line reentrancy-events
         emit IntentSettled(intentId, payer, merchantAmount, operatorFee, treasuryFee);
+    }
+
+    /// @dev Acredita las comisiones de un pago y devuelve el reparto. Solo
+    ///      escribe en el almacenamiento del hub: ninguna transferencia que
+    ///      pueda fallar por culpa del operador o de la tesorería (ADR-009 §1).
+    function _credit(address operatorAddr, uint256 amount)
+        internal
+        returns (uint256 merchantAmount, uint256 operatorFee, uint256 treasuryFee)
+    {
+        (merchantAmount, operatorFee, treasuryFee) = _split(amount);
+        accrued[operatorAddr] += operatorFee;
+        accrued[treasury] += treasuryFee;
+        totalAccrued += operatorFee + treasuryFee;
+    }
+
+    function _split(uint256 amount)
+        internal
+        pure
+        returns (uint256 merchantAmount, uint256 operatorFee, uint256 treasuryFee)
+    {
+        treasuryFee = (amount * TREASURY_SHARE_BPS) / BPS_DENOMINATOR;
+        operatorFee = (amount * OPERATOR_SHARE_BPS) / BPS_DENOMINATOR;
+        merchantAmount = amount - treasuryFee - operatorFee;
     }
 
     /// @notice ERC-3009 settlement variant. Same Effects-Interactions
@@ -499,9 +588,9 @@ contract SettlementHub is Pausable, ReentrancyGuard {
     ///         (= this contract), so on-chain front-running is impossible:
     ///         no other actor can submit the payer's signed authorization
     ///         to redirect funds or burn the nonce. See ADR-003 §2.1.1.
-    /// @dev Slither flags `reentrancy-no-eth` because we make 4 external
-    ///      calls (receiveWithAuthorization + 3 transfers) and update
-    ///      state between them. False positive: `nonReentrant` at the
+    /// @dev Slither flags `reentrancy-no-eth` because we make 2 external
+    ///      calls (receiveWithAuthorization + the merchant transfer) and
+    ///      update state between them. False positive: `nonReentrant` at the
     ///      caller blocks physical re-entry, status is set BEFORE the
     ///      external calls (CEI), and `getIntent` (the only reader) is
     ///      `view`. Same justification as `_payAndSettle`.
@@ -522,8 +611,10 @@ contract SettlementHub is Pausable, ReentrancyGuard {
         if (auth.nonce != auth.intentId) revert AuthorizationNotBoundToIntent();
 
         address merchantAddr;
-        address operatorAddr;
         uint256 amount;
+        uint256 merchantAmount;
+        uint256 operatorFee;
+        uint256 treasuryFee;
 
         // Block scope drops `intent`/`snap` from stack after Effects so the
         // receiveWithAuthorization call below has stack room (Solidity stack
@@ -536,15 +627,16 @@ contract SettlementHub is Pausable, ReentrancyGuard {
             // slither-disable-next-line timestamp
             if (block.timestamp >= snap.expiresAt) revert IntentExpired();
 
-            // Effects: mark as settled BEFORE any external call.
+            // Effects: mark as settled and credit the fees BEFORE any
+            // external call.
             intent.status = IntentStatus.Settled;
 
             merchantAddr = snap.merchant;
-            operatorAddr = snap.operator;
             amount = snap.amount;
+            (merchantAmount, operatorFee, treasuryFee) = _credit(snap.operator, amount);
         }
 
-        // Interactions: (1) pull from payer via ERC-3009, (2) atomic split.
+        // Interactions: (1) pull from payer via ERC-3009, (2) pay the merchant.
         // USDC enforces msg.sender == to, so on-chain front-running is
         // impossible. Reverts on bad sig, expired, before validAfter,
         // nonce already consumed, or payer mismatch.
@@ -553,19 +645,73 @@ contract SettlementHub is Pausable, ReentrancyGuard {
                 auth.payer, address(this), amount, auth.validAfter, auth.validBefore, auth.nonce, auth.signature
             );
 
-        uint256 treasuryFee = (amount * TREASURY_SHARE_BPS) / BPS_DENOMINATOR;
-        uint256 operatorFee = (amount * OPERATOR_SHARE_BPS) / BPS_DENOMINATOR;
-        uint256 merchantAmount = amount - treasuryFee - operatorFee;
-
         bool ok = usdc.transfer(merchantAddr, merchantAmount);
-        if (!ok) revert TransferFailed();
-        ok = usdc.transfer(operatorAddr, operatorFee);
-        if (!ok) revert TransferFailed();
-        ok = usdc.transfer(treasury, treasuryFee);
         if (!ok) revert TransferFailed();
 
         // slither-disable-next-line reentrancy-events
         emit IntentSettled(auth.intentId, auth.payer, merchantAmount, operatorFee, treasuryFee);
+    }
+
+    // ── Comisiones acreditadas (ADR-009 §1) ──────────────────
+
+    /// @notice Cobra las comisiones acreditadas a quien llama.
+    /// @dev    Funciona en pausa: la pausa no retiene el dinero de nadie.
+    function claim() external nonReentrant returns (uint256) {
+        return _claim(msg.sender);
+    }
+
+    /// @notice Cobra las comisiones acreditadas a `account` y se las envía a
+    ///         `account`. Cualquiera puede llamarlo: el dinero solo sale hacia
+    ///         su dueño. Así una tarea periódica barre lo de la tesorería sin
+    ///         tener sus llaves.
+    /// @dev    No hay forma de cobrar hacia otra dirección: una cuenta que el
+    ///         emisor de USDC tenga bloqueada no puede desviar su saldo, y cobra
+    ///         cuando la desbloqueen.
+    function claimFor(address account) external nonReentrant returns (uint256) {
+        return _claim(account);
+    }
+
+    // `amount == 0` es «no hay nada que cobrar»: cualquier saldo mayor se cobra.
+    // slither-disable-next-line incorrect-equality
+    function _claim(address account) internal returns (uint256 amount) {
+        amount = accrued[account];
+        if (amount == 0) revert NothingToClaim();
+        accrued[account] = 0;
+        totalAccrued -= amount;
+        bool ok = usdc.transfer(account, amount);
+        if (!ok) revert TransferFailed();
+        emit FeesClaimed(account, amount);
+    }
+
+    // ── Rescate de lo que sobra (ADR-009 §8) ─────────────────
+
+    /// @notice Acredita a la tesorería el USDC del hub que no está acreditado
+    ///         a nadie: lo que llegó por una transferencia directa. Sale con
+    ///         `claimFor(treasury)`. Cualquiera puede llamarlo: nunca toca lo
+    ///         acreditado a otros.
+    function sweepSurplus() external nonReentrant {
+        uint256 balance = usdc.balanceOf(address(this));
+        // `<=` y no `==`: si el saldo quedara por debajo de lo acreditado (algo
+        // que solo podría hacer el emisor del token), no hay sobrante.
+        if (balance <= totalAccrued) revert NothingToSweep();
+        uint256 surplus = balance - totalAccrued;
+        accrued[treasury] += surplus;
+        totalAccrued += surplus;
+        emit SurplusSwept(address(usdc), surplus);
+    }
+
+    /// @notice Envía a la tesorería todo el saldo de un token que no es USDC.
+    ///         `SafeERC20` porque puede ser cualquier token, también uno que no
+    ///         devuelve `bool`. El hub no acepta ETH (no tiene `receive`).
+    // `balance == 0` es «no hay nada que rescatar»; quien envíe más solo
+    // consigue que salga hacia la tesorería.
+    // slither-disable-next-line incorrect-equality
+    function sweepToken(address token) external nonReentrant {
+        if (token == address(usdc)) revert UseSweepSurplus();
+        uint256 balance = IERC20Any(token).balanceOf(address(this));
+        if (balance == 0) revert NothingToSweep();
+        IERC20Any(token).safeTransfer(treasury, balance);
+        emit SurplusSwept(token, balance);
     }
 
     // ── Cleanup ──────────────────────────────────────────────
@@ -599,8 +745,6 @@ contract SettlementHub is Pausable, ReentrancyGuard {
         pure
         returns (uint256 merchantAmount, uint256 operatorFee, uint256 treasuryFee)
     {
-        treasuryFee = (amount * TREASURY_SHARE_BPS) / BPS_DENOMINATOR;
-        operatorFee = (amount * OPERATOR_SHARE_BPS) / BPS_DENOMINATOR;
-        merchantAmount = amount - treasuryFee - operatorFee;
+        return _split(amount);
     }
 }

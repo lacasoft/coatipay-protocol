@@ -1,5 +1,5 @@
 {
-  "formato": 1,
+  "formato": 2,
   "descripcion": "Cada código del catálogo con su estado HTTP, su categoría y la clase de error que lanza el SDK. Todas heredan de CoatiPaySDKError. Un código que el SDK no conoce (una API más nueva) lanza CoatiPaySDKError, nunca un fallo.",
   "codigos": {
     "invalid_api_key": {

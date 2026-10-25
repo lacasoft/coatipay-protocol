@@ -1,18 +1,20 @@
 import {
   MAX_BATCH_SIZE,
   MAX_EXPIRY_OFFSET,
+  MIN_STAKE_DELAY,
   OPERATOR_SHARE_BPS,
   PROTOCOL_FEE_BPS,
   TREASURY_SHARE_BPS,
   WITHDRAWAL_TIMELOCK,
 } from './fee-constants.generated'
 
-export const PROTOCOL_VERSION = '0.1'
+export const PROTOCOL_VERSION = '0.2'
 export const USDC_BASE_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 export const USDC_DECIMALS = 6
 // Reference values from the whitepaper, NOT on-chain invariants. The minimum
 // in force is `NodeRegistry.minStake()` — a constructor parameter the guardian
-// can raise (40 USDC on Base Sepolia) — so read it from the chain.
+// can change with MIN_STAKE_DELAY of notice (40 USDC on Base Sepolia) — so
+// read it from the chain.
 export const MIN_STAKE_USDC = 100_000_000n
 export const TARGET_STAKE_USDC = 10_000_000_000n
 export const ROUTING_TIMEOUT_MS = 5_000
@@ -30,6 +32,7 @@ export const STAKE_WITHDRAWAL_TIMELOCK_DAYS = WITHDRAWAL_TIMELOCK / 86_400
 export {
   MAX_BATCH_SIZE,
   MAX_EXPIRY_OFFSET,
+  MIN_STAKE_DELAY,
   OPERATOR_SHARE_BPS,
   PROTOCOL_FEE_BPS,
   TREASURY_SHARE_BPS,

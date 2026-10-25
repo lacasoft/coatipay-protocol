@@ -13,7 +13,8 @@ import {IERC20} from "../src/interfaces/IERC20.sol";
 ///   1. registerIntent succeeds with the configured operator wallet
 ///   2. EIP-712 ReceiveWithAuthorization signed off-chain is accepted by
 ///      USDC + flows through SettlementHub.payIntentWithAuthorization
-///   3. Funds split atomically: 98.5% merchant + 1.05% nodeit + 0.45% treasury
+///   3. The merchant gets 98.5% at once; 1.05% (nodeit) and 0.45% (treasury)
+///      are credited in the hub, to be claimed later (ADR-009)
 ///   4. The IntentSettled event is emitted (consumable by the daemon's
 ///      SettlementEventWatcher)
 ///
@@ -27,7 +28,9 @@ import {IERC20} from "../src/interfaces/IERC20.sol";
 ///   PAYER_PRIVATE_KEY         — signs the EIP-712 + must hold USDC
 ///   OPERATOR_PRIVATE_KEY      — submits the txs + pays gas
 ///   MERCHANT_ADDRESS          — destination for the 98.5% (any address)
-///   E2E_INTENT_ID             — string like "pi_e2e_001" (used to derive bytes32 key)
+///   E2E_INTENT_ID             — string like "pi_e2e_001" (its keccak256 is the `ref`;
+///                               the intentId is `hub.intentIdOf(merchant, ref)`)
+///   INTENT_SIGNER_PRIVATE_KEY — the hot key the hub's IntentSignerGate accepts
 ///   E2E_AMOUNT_USDC_UNITS     — amount in 6-decimal base units (e.g. 100000 = 0.10 USDC)
 ///
 /// Usage (Base Sepolia):
@@ -47,6 +50,7 @@ contract E2EFlow is Script {
         address operator;
         uint256 operatorKey;
         address merchant;
+        bytes32 ref;
         bytes32 intentId;
         uint256 amount;
     }
@@ -80,7 +84,8 @@ contract E2EFlow is Script {
         cfg.token = IERC20(cfg.usdc);
         cfg.payer = vm.addr(cfg.payerKey);
         cfg.operator = vm.addr(cfg.operatorKey);
-        cfg.intentId = keccak256(bytes(vm.envString("E2E_INTENT_ID")));
+        cfg.ref = keccak256(bytes(vm.envString("E2E_INTENT_ID")));
+        cfg.intentId = cfg.hub.intentIdOf(cfg.merchant, cfg.ref);
     }
 
     function _logPreflight(E2EConfig memory cfg) internal view {
@@ -114,7 +119,7 @@ contract E2EFlow is Script {
         cfg.hub
             .registerIntent(
                 SettlementHub.IntentRegistration({
-                    intentId: cfg.intentId,
+                    ref: cfg.ref,
                     merchant: cfg.merchant,
                     operator: cfg.operator,
                     amount: cfg.amount,
@@ -137,7 +142,9 @@ contract E2EFlow is Script {
         auth.payer = cfg.payer;
         auth.validAfter = 0;
         auth.validBefore = block.timestamp + 1 hours;
-        auth.nonce = keccak256(abi.encode(cfg.intentId, cfg.payer, block.timestamp));
+        // The hub requires nonce == intentId: the payer's signature is bound to
+        // this intent, and through it to this merchant (ADR-004, ADR-009 §3).
+        auth.nonce = cfg.intentId;
 
         bytes32 typeHash = keccak256(
             "ReceiveWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
@@ -175,10 +182,10 @@ contract E2EFlow is Script {
         // balances reflect post-state. The integrated E2E (manual procedure
         // in docs/PHASE_B5_DEPLOY.md) covers balance reconciliation across
         // the full API → daemon → on-chain flow.
-        console.log("Final balances:");
-        console.log("  merchant:", cfg.token.balanceOf(cfg.merchant));
-        console.log("  operator:", cfg.token.balanceOf(cfg.operator));
-        console.log("  treasury:", cfg.token.balanceOf(cfg.hub.treasury()));
+        console.log("Merchant balance:", cfg.token.balanceOf(cfg.merchant));
+        console.log("Credited in the hub (claim with claim / claimFor):");
+        console.log("  operator:", cfg.hub.accrued(cfg.operator));
+        console.log("  treasury:", cfg.hub.accrued(cfg.hub.treasury()));
     }
 
     /// Read DOMAIN_SEPARATOR() from the deployed USDC. Saves us from
