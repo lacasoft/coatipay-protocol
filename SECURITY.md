@@ -61,13 +61,22 @@ dándonos la oportunidad de corregirlo antes de que le costara dinero a alguien.
 |---|---|---|---|
 | 2026-08 | La firma ERC-3009 no estaba atada al intent: el destino del pago lo decidía un campo de calldata que elige el nodeit | Crítica | [ibnu76](https://github.com/ibnu76) |
 | 2026-08 | El sistema de disputas no validaba nada y castigaba a las 48 h sin votación | Alta | [ibnu76](https://github.com/ibnu76) |
+| 2026-10 | Con la tesorería en la lista negra del emisor de USDC, el hub dejaba de liquidar **todos** los pagos; con un nodeit en la lista, los suyos | Media | [KupiaSec](https://sec.kupia.io) |
 
-Ambos corregidos en
+Los dos de ibnu76, corregidos en
 [ADR-004](audits/adr/004-auth-binding-y-retirada-de-disputas.md). El primero,
 además, nos llevó a un tercer fallo de la misma clase que el reporte no cubría
 y que por nuestra cuenta no habríamos buscado.
 
-Ambos hallazgos llegaron con pruebas de concepto que funcionaban, y con la
+Los dos llegaron con pruebas de concepto que funcionaban, y con la
 severidad bien calibrada: F-2 se reportó como denegación de servicio y no como
 robo, que es lo que era. Esa honestidad es la razón por la que nos tomamos el
 resto en serio y fuimos a buscar más.
+
+El de KupiaSec se corrigió en
+[ADR-009](audits/adr/009-una-parte-que-falla-no-detiene-a-las-demas.md),
+desplegado el 2026-10-25: el comercio cobra en el acto y las comisiones del
+nodeit y de la tesorería quedan acreditadas, así que una dirección bloqueada ya
+no detiene los pagos de los demás. El reporte nos llevó a revisar todo el sistema en
+busca de la misma familia de fallos —una parte que falla y detiene a las demás—,
+y de esa revisión salieron el resto de cambios de ADR-009.
