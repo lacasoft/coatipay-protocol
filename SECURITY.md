@@ -34,7 +34,9 @@ fallo siga vivo, publicarlo pone en riesgo fondos de terceros.
 ## Alcance
 
 **Dentro:** los contratos de `contracts/src/` — `SettlementHub`, `NodeRegistry`,
-`StakeManager` — y los tipos y constantes de `protocol/`.
+`StakeManager`, `IntentSignerGate` y la base `Pausable` —, el script de
+despliegue (`contracts/script/Deploy.s.sol`) y los tipos y constantes de
+`protocol/`.
 
 **Fuera:** la infraestructura que opera CoatiPay (API, dashboard, nodos) no vive
 en este repositorio. Si el fallo está ahí, escríbenos igual a la misma dirección.

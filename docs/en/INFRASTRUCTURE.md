@@ -158,25 +158,22 @@ Lightning was **considered and dropped** (out of scope): it will not be implemen
 
 ## 4. Smart Contract Layer
 
-Three non-upgradeable contracts on Base define all on-chain protocol rules: `NodeRegistry`, `StakeManager`, and `SettlementHub` (all extend a shared `Pausable` base).
+Four non-upgradeable contracts on Base define all on-chain protocol rules: `NodeRegistry`, `StakeManager`, `SettlementHub` and `IntentSignerGate` (the first three extend a shared `Pausable` base). The design of the current version is in [ADR-009](../../audits/adr/009-una-parte-que-falla-no-detiene-a-las-demas.md): **a part that fails does not stop the others**.
 
 ### Deployment status
 
-The first Phase-B5 testnet deployment was completed on **Base Sepolia (chainId 84532)**, source-verified on Basescan. The canonical source of truth for deployed addresses, block, commit hash, and constructor parameters is `contracts/deployments/sepolia.json` — that JSON is what the API, node daemon, and any integrator read. Mainnet remains blocked by the pending external audit.
+The ADR-009 contracts are deployed on **Base Sepolia (chainId 84532)**, source-verified on Basescan. The canonical source of truth for deployed addresses, block and constructor parameters is `contracts/deployments/sepolia.json` — that JSON is what the API, node daemon and any integrator read. Mainnet remains blocked by the pending external audit.
 
-> **ADR-004 forces a redeploy.** The contract set in this repository is no longer
-> the one live on Sepolia today: `registerIntent` changed signature and
-> `StakeManager` lost the economic penalty, and that logic lives in
-> non-upgradeable bytecode. The rollout is a clean cut — new contracts first,
-> then API and daemon pointed at the new addresses in the same window — not a
-> gradual transition.
+The move from the August deployment to this one was a clean cut — new contracts first, then API and daemon pointed at the new addresses in the same window: the API and daemon of this version do not start against an earlier hub (their preflight asks the chain for `intentIdOf` and compares the result), and the earlier ones do not understand the new hub. What was left in the August hub stays there: it had no rescue.
 
 ### Design principles
 
-- **Non-upgradeable:** No proxy patterns and no fund-moving admin keys — no one can move funds or rewrite state. There **is** an emergency pause (the shared `Pausable` base) controlled by a guardian (on mainnet, a multisig —3-of-5 planned—, not a single key; today, on testnet, a single wallet). It gates registration and new-write operations: since every payment is registered when it settles, pausing the hub also stops payments not yet settled, and pausing StakeManager freezes stake deposits and withdrawals while it lasts. The guardian is held by the Foundation (no migration to on-chain governance is committed). What is audited is what runs. If a bug requires a fix, the correct response is a new deployment with an RFC-approved migration path.
+- **Non-upgradeable:** No proxy patterns and no fund-moving admin keys — no one can move funds or rewrite state. There **is** an emergency pause (the shared `Pausable` base) controlled by a guardian (on mainnet, a multisig —3-of-5 planned—, not a single key; today, on testnet, a single wallet). The pause stops new risk — registering nodes and intents, depositing stake — but **holds no one's money**: with the contracts paused, stake can be withdrawn and credited fees can be claimed. Already-registered intents are paid as usual; since the platform registers each intent when it settles it, pausing the hub also stops payments not yet registered. The guardian is held by the Foundation (no migration to on-chain governance is committed). What is audited is what runs. If a bug requires a fix, the correct response is a new deployment with an RFC-approved migration path.
+- **A part that fails does not stop the others:** a merchant, a nodeit or the treasury in trouble — e.g. on the USDC issuer's blacklist — affects what is theirs, not other people's payments. What cannot be fixed on the spot is held and recoverable, not blocking.
+- **No single-key lever is irreversible:** what one key can break — `minStake`, the guardian, the key that signs registrations — can be seen coming and undone.
 - **Minimal surface:** Each contract does exactly one thing. No cross-concerns.
 - **USDC-denominated:** All stake and fees are in USDC. No protocol token.
-- **Event-driven:** All state changes emit events. The off-chain routing engine and node daemon rely on event logs, not polling.
+- **Event-driven:** All state changes emit events. The API and the node daemon read event logs; they do not take any party's word.
 
 ---
 
@@ -188,36 +185,46 @@ The first Phase-B5 testnet deployment was completed on **Base Sepolia (chainId 8
 ```solidity
 mapping(address => Node) private _nodes;
 address[] private _activeOperators;
+
+uint256 public constant MIN_STAKE_DELAY = 7 days;
+uint256 public minStake;               // never zero
+uint256 public pendingMinStake;        // proposal in progress
+uint256 public minStakeEffectiveAt;    // when it can be applied; 0 = no proposal
 ```
 
 **Key functions:**
 
 `register(string endpoint)`
-- Callable by anyone who **already deposited** stake. 3-tx flow: `usdc.approve(stakeManager, amount)` → `stakeManager.deposit(amount)` → `register(endpoint)`
-- Requires `staked >= minStake` (100 USDC on mainnet · 40 USDC on Sepolia testnet — adjustable by the guardian via `setMinStake`, increase-only). **Does NOT transfer USDC**: it only verifies the stake on-chain via `StakeManager.getStakeInfo()` (least-privilege — the registry moves no funds)
-- Pushes operator to `_activeOperators`
+- Callable by anyone who **already has stake deposited**. 3-tx flow: `usdc.approve(stakeManager, amount)` → `stakeManager.deposit(amount)` → `register(endpoint)`
+- Requires `staked >= minStake` (100 USDC on mainnet · 40 USDC on Sepolia testnet). **Does NOT transfer USDC**: it only checks the on-chain stake via `StakeManager.getStakeInfo()` (least-privilege — the registry moves no funds)
+- Pushes the operator to `_activeOperators`
 - Emits `NodeRegistered`
 
 `deactivate()`
-- Removes operator from `_activeOperators`
-- Does NOT release stake — must go through StakeManager
+- Removes the operator from `_activeOperators`
+- Does NOT release the stake — that goes through StakeManager
 - Emits `NodeDeactivated`
 
-`getActiveNodes() → address[]`
-- Returns all active operator addresses
-- Used by the routing engine to discover candidates
+`getActiveNodes() → address[]`, `activeNodeCount()`, `getActiveNodesPage(offset, limit)`
+- The list of active operators, whole or paged. The list grows with the nodeits; the API reads it page by page, so reading it never stops being possible
 
-**Events the routing engine listens to:**
+`proposeMinStake(new)` (guardian) → `applyMinStake()` (anyone, after 7 days) · `cancelMinStakeProposal()` (guardian)
+- `minStake` changes with a week's notice, up or down, and never to zero. A new proposal replaces the pending one and its delay starts over: there is no way to shorten the notice. A mistake is fixed by proposing the previous value; a stolen key can be seen coming and cancelled. The platform's watchdog warns about any pending proposal
+
+**Events:**
 ```
 NodeRegistered(address indexed operator, string endpoint, uint256 stake)
 NodeUpdated(address indexed operator, string endpoint)
 NodeDeactivated(address indexed operator)
+MinStakeProposed(uint256 current, uint256 proposed, uint256 effectiveAt)
+MinStakeProposalCancelled(uint256 proposed)
+MinStakeChanged(uint256 previous, uint256 newMin)
 ```
 
 **Security invariants:**
 - An address cannot register twice (checked via `registeredAt != 0`)
-- Stake is held by StakeManager, not NodeRegistry — registry has no token balance
-- `getActiveNodes()` is O(n) — acceptable for Phase 1, needs pagination in Phase 3
+- The stake is held by StakeManager, not NodeRegistry — the registry has no token balance
+- `minStake` only changes by applying a proposal that waited `MIN_STAKE_DELAY`, and is never zero
 
 ---
 
@@ -228,6 +235,8 @@ NodeDeactivated(address indexed operator)
 **State:**
 ```solidity
 uint256 public constant WITHDRAWAL_TIMELOCK = 7 days;
+address public immutable treasury;   // only receives what is surplus
+uint256 public totalHeld;            // what is deposited plus what is leaving
 
 mapping(address => StakeInfo) private _stakes;
 
@@ -240,55 +249,75 @@ struct StakeInfo {
 
 **What the stake is — and what it is not.**
 
-The stake is a bond and an anti-Sybil barrier: it accredits a nodeit to enter
-the registry and commits its own capital. It is **not confiscable** (ADR-004):
-the contract has no function that moves stake to a third party. USDC enters
+The stake is a bond and an anti-Sybil barrier: it qualifies a nodeit to enter
+the registry and commits its own capital. **It is not confiscable** (ADR-004):
+the contract has no function that moves stake to a third party. The USDC enters
 from the nodeit's address and can only leave towards that same address.
 
 **The withdrawal timelock:**
 
 The 7-day timelock between `requestWithdrawal()` and `executeWithdrawal()` is
-what turns the stake into a capital commitment rather than a one-block deposit.
-Without it the anti-Sybil barrier would be cosmetic: the same bag of USDC could
-be deposited, accredit an identity, be withdrawn, and start over in the next
+what turns the stake into a capital commitment instead of a one-block deposit.
+Without it, the anti-Sybil barrier would be cosmetic: the same bag of USDC could
+be deposited, qualify an identity, be withdrawn and start over in the next
 transaction, as many times as wanted and at no real cost.
 
 The timelock also makes the exit public. `requestWithdrawal()` deducts the
-amount from `staked` immediately and emits
-`WithdrawalRequested(operator, amount, unlockAt)`, so a nodeit on its way out
-drops below the minimum instantly and visibly on-chain — the API sees it in
+amount from `staked` at once and emits
+`WithdrawalRequested(operator, amount, unlockAt)`, so a nodeit that is leaving
+drops below the minimum immediately and visibly on-chain — the API sees it in
 `getStakeInfo()` and stops assigning it settlements seven days before it can
 touch the money.
 
 **Access control:**
 - `deposit()`, `requestWithdrawal()`, `executeWithdrawal()` — callable by any
-  address, and they always act on `msg.sender`. There is no arbitrary `from`
+  address, and always act on `msg.sender`. There is no arbitrary `from`
   parameter, so none of the three can touch someone else's stake
 - There is no `depositFor()`: `NodeRegistry` does not proxy USDC transfers — it
-  verifies already-deposited stake via `getStakeInfo()` (least-privilege)
-- The guardian cannot move anyone's stake, not even while paused; but while
-  the pause lasts no one can deposit or withdraw (all three functions are
-  `whenNotPaused`). Besides pausing, it can raise `minStake` in `NodeRegistry`
-  (never lower it) and transfer its own role
+  checks the stake already deposited via `getStakeInfo()` (least-privilege)
+- The pause stops `deposit()`, not withdrawals: the guardian cannot hold anyone's
+  stake
+- `sweepSurplus()` and `sweepToken(token)`, callable by anyone, send to the
+  treasury what arrived by mistake — USDC that did not go through `deposit`, or
+  another token. They never touch `totalHeld`: the nodeits' stake is out of
+  their reach
 
 ---
 
 ### 4.3 SettlementHub.sol
 
-**Responsibility:** Trustless on-chain settlement and atomic fee split. This is the contract that **moves the funds** — it pulls the payer's USDC and splits it on-chain (merchant + node operator + treasury) in a single transaction, replacing the prior "operator-side daemon forwards funds" trust model.
+**Responsibility:** Trustless on-chain settlement. This is the contract that **moves the funds** — it pulls the payer's USDC, pays the merchant in the same transaction and **credits** the nodeit's and the treasury's fees, replacing the previous trust model of "the operator's daemon forwards the funds".
 
-**Fee split (atomic, on-chain):** for any `amount`, the contract sends 98.5% to the merchant, 1.05% to the node operator, and 0.45% to the treasury, in the same transaction. The fee constants are `public constant` — not configurable, no way to change the fee post-deploy:
+**Pull split (ADR-009 §1):** for any `amount`, the contract sends 98.5% to the merchant in the same transaction, and credits 1.05% to the nodeit and 0.45% to the treasury (`accrued[account]`, with the sum in `totalAccrued`). Each one collects theirs with `claim()`; `claimFor(account)` can be called by anyone — the money only leaves towards its owner — so a periodic job can sweep the treasury's share without holding its keys. Both work while paused. The fee constants are `public constant` — not configurable, no way to change the fee post-deploy:
 
 ```solidity
 uint16  public constant PROTOCOL_FEE_BPS   = 150;  // 1.5% total fee
-uint16  public constant OPERATOR_SHARE_BPS = 105;  // 1.05% to node operator
-uint16  public constant TREASURY_SHARE_BPS = 45;   // 0.45% to treasury
+uint16  public constant OPERATOR_SHARE_BPS = 105;  // 1.05% to the nodeit
+uint16  public constant TREASURY_SHARE_BPS = 45;   // 0.45% to the treasury
 uint256 public constant MAX_BATCH_SIZE     = 50;   // batch cap (x402)
 ```
 
+Why *pull*: if the USDC issuer blacklists the treasury or a nodeit, a transfer to
+that address reverts. With the split done on the spot, the whole payment
+reverted — with the treasury blocked, **every** payment — and only a redeploy
+fixed it. Now payments go on and the fee of whoever is blocked waits, credited.
+It cannot be claimed towards another address (a blocked account cannot divert its
+balance), and the treasury is immutable. A blocked merchant does not get paid:
+its payment reverts, because crediting it would leave the payer's money held. As
+a side effect, a payment costs less gas: two writes to the hub's storage instead
+of two USDC transfers (measured with real USDC: 53.9k vs 84.1k when the nodeit
+already has a credited balance; each `claim`, about 60k).
+
+**The `intentId` carries the merchant (ADR-009 §3).** `intentIdOf(merchant, ref)`
+is `keccak256(abi.encode(merchant, ref))`, where `ref` is `keccak256` of the
+charge id (`pi_…`). The registration carries `ref` and the hub computes the id;
+the payer signs that id as the nonce. So not even whoever controls `intentSigner`
+can bind a payment the payer already signed to another merchant.
+
 **Signed intent registration (ADR-004).** `registerIntent(IntentRegistration)`
 only accepts a registration carrying an EIP-712 signature from `intentSigner`
-over `(intentId, merchant, operator, amount, expiresAt)`:
+over `(intentId, merchant, operator, amount, expiresAt)`, with the `intentId` the
+hub itself computes:
 
 ```solidity
 bytes32 public constant REGISTER_INTENT_TYPEHASH = keccak256(
@@ -296,90 +325,101 @@ bytes32 public constant REGISTER_INTENT_TYPEHASH = keccak256(
 );
 ```
 
-The nodeit still submits the transaction and pays the gas, but it cannot alter
-the content: if it swaps the merchant address — or the amount, or the operator
+The nodeit still sends the transaction and pays the gas, but cannot alter its
+contents: if it swaps the merchant address — or the amount, or the operator
 that collects — the signature is no longer valid for `intentSigner` and the
-contract reverts with `InvalidIntentSignature`. `registerIntentBatch` requires
-the signature **per element**, so the batch cannot be a shortcut to register
-without authorization. The registration travels as a struct
-(`IntentRegistration`) instead of parallel arrays, which removes the
-mismatched-length class of bug at the root.
+contract reverts with `InvalidIntentSignature`. The registration is a struct
+(`IntentRegistration`) rather than parallel arrays, which removes the
+mismatched-lengths class of bug at the root. The EIP-712 type and domain are
+generated from the contract into the protocol package (`REGISTER_INTENT_TYPES`,
+`settlementHubDomain`), like the fees.
+
+**An invalid registration does not sink the batch (ADR-009 §2).**
+`registerIntentBatch` requires the signature **element by element** — the batch
+is not a shortcut to register without authorization — and registers each one
+separately: one that would revert is skipped with
+`IntentRegistrationSkipped(intentId, reason)` and the rest are registered.
+Already-registered ones are skipped silently; the pause reverts the whole batch.
 
 The EIP-712 domain separator (`CoatiPay SettlementHub`, version `1`) is
 recomputed on every call instead of cached, so a chain fork automatically
 invalidates the original chain's signatures.
 
-The `intentSigner` **address** is **immutable on purpose**: if the guardian
-could rotate it, it would be able to bind in-flight payments to a merchant of
-its choosing — which is exactly the fund-moving power this design denies it.
-This is a real centralization, and it is declared as such in §17.
-
-What the deployment *does* choose is **what sits behind that address**.
-Verification uses `SignatureChecker`, not `ECDSA.tryRecover`, so the signer may
-be a plain wallet or an **ERC-1271** contract — the same mechanism USDC uses
-here to validate payer smart-wallet signatures. That does not change the
-immutability; it changes its **cost**:
-
-- **Deployed with a plain wallet (EOA):** one key authorizes, and if it is lost
-  or leaked the only response is to **pause and redeploy the whole hub**. The
-  contract accepts this configuration for compatibility only.
-- **Deployed with a multisig (ERC-1271):** the address stays immutable — the
-  guardian still cannot touch it — but **the signers rotate inside the
-  multisig**, without touching the contract or changing the address. And signing
-  takes the threshold, not a single key. The worst case moves from "redeploy the
-  hub" to "remove a signer from the Safe".
-
-**In production `intentSigner` must be a multisig.** The pause remains the
-emergency lever for the case where the whole threshold is compromised.
-`contracts/test/SettlementHub.multisigSigner.t.sol` covers this configuration
-with a 2-of-3 multisig (six tests): a removed compromised key stops counting
-towards the threshold, the healthy ones keep authorizing against the **same**
-hub, `intentSigner` never changes, and the plain-wallet path still works.
+The `intentSigner` **address** is **immutable on purpose**: the guardian cannot
+change who authorizes registrations. It is a real centralization and is declared
+as such in §17. In production it is an `IntentSignerGate` (§4.4), which lets the
+signing key be rotated without changing that address.
 
 **Binding the authorization to its intent (ADR-004).** The payer's ERC-3009
-signature covers `from`, `to`, `value`, `validAfter`, `validBefore`, and
-`nonce` — it does not cover the intent; and since USDC requires
-`msg.sender == to`, the signed `to` is always the hub and can never name the
-merchant. That is why the contract requires `auth.nonce == auth.intentId` and
-reverts with `AuthorizationNotBoundToIntent` otherwise: each signature is locked
-into one specific intent, which already has an owner because `registerIntent`
-rejects duplicate identifiers. Desirable side effect: USDC's nonce map also
-guarantees a single settlement per intent, independently of the intent's status.
+signature covers `from`, `to`, `value`, `validAfter`, `validBefore` and `nonce`
+— it does not cover the intent; and since USDC requires `msg.sender == to`, the
+signed `to` is always the hub and can never name the merchant. That is why the
+contract requires `auth.nonce == auth.intentId` and reverts with
+`AuthorizationNotBoundToIntent` otherwise: each signature is locked to one
+specific intent — and, with ADR-009, to its merchant. A welcome side effect:
+USDC's nonce map additionally guarantees a single settlement per intent,
+regardless of the intent's status.
 
-**Three pay paths** — the gasless ERC-3009 path is the Phase 1 path:
+**What arrives by mistake has a way out (ADR-009 §8).** `sweepSurplus()` credits
+the treasury with the hub's USDC that is not credited to anyone, and
+`sweepToken(token)` sends it any other token. Anyone can call them; they never
+touch what is credited to others. The hub does not accept ETH.
+
+**Three pay paths** — the gasless ERC-3009 path is the Phase 1 one:
 - `payIntent` — approve + pay
 - `payIntentWithPermit` — EIP-2612
-- `payIntentWithAuthorization` — **ERC-3009 gasless** (the payer signs a `ReceiveWithAuthorization` authorization off-chain; the nodeit submits it and pays the gas) + `payIntentBatchWithAuthorization` for batch x402 (up to `MAX_BATCH_SIZE = 50`)
+- `payIntentWithAuthorization` — **gasless ERC-3009** (the payer signs a `ReceiveWithAuthorization` authorization off-chain; the nodeit submits it and pays the gas) + `payIntentBatchWithAuthorization` for x402 batches (up to `MAX_BATCH_SIZE = 50`)
 
-`IntentSettled` is the **source of truth** for settlement — the API reads it from the chain itself and marks the intent `settled`; no node reports it (ADR-007). `SettlementHub` uses `nonReentrant` on every pay path and follows Checks-Effects-Interactions.
+`IntentSettled` is the **source of truth** for settlement — the API reads it from the chain itself and marks the intent as `settled`; no nodeit reports it (ADR-007). `SettlementHub` uses `nonReentrant` on every pay path and follows Checks-Effects-Interactions.
 
-### 4.4 Contract deployment order
+### 4.4 IntentSignerGate.sol
 
-There are no circular dependencies: the three contracts are independent and
-receive the **real guardian in their constructor**, so the deployer never holds
-authority over the protocol at any point. ADR-004 removed the intermediate phase
-with the deployer as temporary guardian, which only existed because of
-`StakeManager.initialize()`.
+**Responsibility:** to be the hub's `intentSigner` (ADR-009 §4).
+
+- **`signer`**: the hot key the API signs each registration with. The gate
+  implements ERC-1271 and accepts its signature over the hub's EIP-712 digest as
+  is. `signer` can itself be an ERC-1271 contract.
+- **`admin`**: the only one that can change `signer` (`setSigner`), instantly. On
+  mainnet, a cold multisig. It is transferred in two steps
+  (`transferAdmin` + `acceptAdmin`).
+- `setSigner(address(0))` is the **emergency brake**: no new registration goes
+  through until another key is named.
+
+A stolen or lost hot key is retired without redeploying the hub, and whoever
+steals it cannot rotate it or touch the admin. What it can do while it remains
+valid is bounded by the hub: it cannot bind an already-signed payment to another
+merchant (the `intentId` carries the merchant), and what it could do — register
+intents with another operator — only diverts the 1.05% fee, never the payment.
+The platform's watchdog warns if the gate stops accepting the API's key or has
+the brake on.
+
+### 4.5 Contract deployment order
+
+There are no circular dependencies: the contracts receive the **real guardian in
+their constructor**, so the deployer never holds authority over the protocol at
+any point.
 
 ```
-1. StakeManager  (usdc, guardian)
-2. NodeRegistry  (stakeManager, guardian, initial minStake)
-3. SettlementHub (usdc, treasury, guardian, intentSigner)
+1. StakeManager      (usdc, guardian, treasury)
+2. NodeRegistry      (stakeManager, guardian, initial minStake)
+3. IntentSignerGate  (admin, the API's hot key)
+4. SettlementHub     (usdc, treasury, guardian, gate)
 ```
 
-`NodeRegistry` is not wired inside `StakeManager`: nodeits deposit directly with
-`stakeManager.deposit()` and the registry reads the stake via
+`NodeRegistry` is not wired into `StakeManager`: nodeits deposit directly with
+`stakeManager.deposit()` and the registry checks the stake via
 `stakeManager.getStakeInfo(operator)`.
 
-If `intentSigner` is going to be a multisig — the production recommendation
-(§4.3) — the multisig must exist **first**: its address is passed to the
-constructor and cannot be changed afterwards, so the threshold and the custody
-of the signer keys are decided at deployment, not later.
-
-`script/Deploy.s.sol` aborts if the deployer equals the treasury or the
-guardian, or if guardian and treasury are the same wallet — these are roles that
-must never collapse into a single key. On completion it verifies every immutable
-on-chain (usdc, treasury, guardian, `intentSigner`) and the fee constants.
+`script/Deploy.s.sol` deploys all four and aborts if one role collapses into
+another: the deployer cannot be the treasury, the guardian or the gate admin;
+guardian and treasury cannot be the same; and the hot key cannot be the
+deployer, the guardian, the treasury or **its own admin** (if it were, whoever
+stole it could rotate it). On Base mainnet it additionally requires the
+treasury, the guardian and the gate admin to be **real multisigs** — a contract
+that is not a wallet with an EIP-7702 delegation (it has "code" and is still a
+single key) and, if it is a Safe, with a threshold of 2 or more — and the USDC to
+be Circle's. When done it verifies every immutable and the fee constants
+on-chain.
 
 ---
 
@@ -587,8 +627,8 @@ To change an endpoint's secret: `POST /v1/webhooks/:id/rotate_secret` returns a 
 The nodeit daemon is an HTTP server that:
 1. Registers on-chain in `NodeRegistry.sol` at startup
 2. Exposes two public routes: `/health` and `/info`
-3. Polls the API's ERC-3009 authorization queue and claims pending ones
-4. Submits `payIntentWithAuthorization` to `SettlementHub.sol` (paying the gas) for each claimed authorization
+3. Polls the API's ERC-3009 authorization queue and takes pending ones
+4. Submits `payIntentWithAuthorization` to `SettlementHub.sol` (paying the gas) for each authorization taken
 5. Confirms the settlement via the on-chain `IntentSettled` event and notifies the API
 6. Maintains its own local store of settled intents for auditing
 
@@ -626,11 +666,11 @@ The nodeit daemon is an HTTP server that:
 Settlement is not triggered by an exposed HTTP endpoint on the nodeit, but by an internal loop in the daemon:
 
 1. The payer signs an EIP-712 `ReceiveWithAuthorization` authorization off-chain with their own wallet. The SDK sends it to the API, which **verifies the signature against the chain** — plain wallet, ERC-1271 or ERC-6492 — and only then queues it (ADR-006).
-2. The nodeit daemon polls that queue, claims a pending authorization, and submits `payIntentWithAuthorization` to `SettlementHub.sol`. **The nodeit pays the gas for this transaction.**
-3. `SettlementHub.sol` pulls the payer's USDC and splits it atomically on-chain (98.5% merchant, 1.05% nodeit, 0.45% treasury) and emits `IntentSettled`.
+2. The nodeit daemon polls that queue, takes a pending authorization, and submits `payIntentWithAuthorization` to `SettlementHub.sol`. **The nodeit pays the gas for this transaction.**
+3. `SettlementHub.sol` pulls the payer's USDC, pays 98.5% to the merchant in the same transaction, credits 1.05% to the nodeit and 0.45% to the treasury, and emits `IntentSettled`. The nodeit collects what is credited with `claim()` when it suits it; the daemon does it on its own.
 4. The API reads the `IntentSettled` event from the chain, with a confirmation margin, and marks the intent as `settled`. The node reports nothing: the API would not take its word (ADR-007).
 
-The nodeit authenticates to the API by **signing every request with its own key** (EIP-191), and the API checks in the `NodeRegistry` that the address is registered, active and sufficiently staked. The contract only looks at the stake on registration; after that the API enforces it on every request, and a nodeit that drops below the minimum stops receiving work within 30 seconds at most (ADR-008). There is no shared secret between them: there used to be one, and whoever held it could impersonate any nodeit. The merchant never defines a payment address — the USDC moves from payer to merchant within the contract's atomic transaction.
+The nodeit authenticates to the API by **signing every request with its own key** (EIP-191), and the API checks in the `NodeRegistry` that the address is registered, active and sufficiently staked. The contract only looks at the stake on registration; after that the API enforces it on every request, and a nodeit that drops below the minimum stops receiving work within 30 seconds at most (ADR-008). There is no shared secret between them: there used to be one, and whoever held it could impersonate any nodeit. The merchant never defines a payment address — the USDC moves from payer to merchant within the same contract transaction.
 
 ### 7.4 ERC-3009 payment model
 
@@ -642,7 +682,7 @@ This entirely eliminates the need for a unique payment address per intent and HD
 
 - There is no per-intent derived address — the payer pays from their own wallet.
 - The authorization's `value` fixes the exact amount; the contract rejects any mismatch. It is not possible for a payer to pay the wrong amount and claim a different intent.
-- The `nonce` **is the intent identifier** (`nonce == intentId`, ADR-004): it binds the signature to that specific intent, and the contract rejects any authorization that does not match. Without that binding, whoever submits the transaction could apply the payer's signature to an intent of their own (see §4.3).
+- The `nonce` **is the intent identifier** (`nonce == intentId`, ADR-004): it binds the signature to that specific intent, and the contract rejects any authorization that does not match. Without that binding, whoever submits the transaction could apply the payer's signature to an intent of their own (see §4.3). And since the identifier is `intentIdOf(merchant, ref)` (ADR-009), the signature carries the merchant that gets paid: the checkout shows it before signing.
 - The `nonce` is consumed on-chain on first use, which prevents authorization replay.
 - The payment is **gasless for the payer**: the nodeit submits the transaction and pays the gas.
 - **Smart wallets work.** A deployed one signs via ERC-1271 and USDC validates it at settlement. An undeployed one signs with ERC-6492 and the nodeit deploys it before settling — which is why it **only ever executes `createAccount` on the Coinbase Smart Wallet factories**. The signer chooses the factory and its calldata; without that restriction the nodeit would execute, from its own account, whatever call a third party wanted (F-4, ADR-006).
@@ -799,18 +839,19 @@ relay.x402.middleware({ price: 50000 }) // $0.05  → routed
         │
         ▼
 [Nodeit daemon polls the queue]
-  Claims the pending authorization
+  Takes the pending authorization
   Submits payIntentWithAuthorization to SettlementHub.sol
   (the nodeit pays the gas)
         │
         ▼
-[SettlementHub.sol — atomic on-chain transaction]
+[SettlementHub.sol — one on-chain transaction]
   Pulls the payer's USDC via ERC-3009
-  Splits the amount on-chain:
-    98.5% → merchant wallet
-    1.05% → nodeit (OPERATOR_SHARE_BPS = 105)
-    0.45% → treasury (TREASURY_SHARE_BPS = 45)
+  Splits the amount:
+    98.5% → merchant wallet, in the same transaction
+    1.05% → credited to the nodeit (OPERATOR_SHARE_BPS = 105)
+    0.45% → credited to the treasury (TREASURY_SHARE_BPS = 45)
   Emits the IntentSettled event
+  (each one collects what is credited with claim(); ADR-009)
         │
         ▼
 [The API reads the chain]     status: settled
@@ -834,22 +875,22 @@ relay.x402.middleware({ price: 50000 }) // $0.05  → routed
 ```
 created → settled
   Triggered: the on-chain IntentSettled event is confirmed
-  Condition: SettlementHub.sol settled the intent atomically
+  Condition: SettlementHub.sol settled the intent
 
 created → expired
   Triggered: the expires_at timestamp is reached
-  Condition: the intent did not reach settled and no nodeit claimed an authorization
+  Condition: the intent did not reach settled and no nodeit took an authorization
   Effect:    queued authorizations are discarded (the hub refuses to settle from expiresAt on)
 
 created → cancelled
   Triggered: the merchant cancels the intent
-  Condition: the intent is not yet settled and no nodeit claimed an authorization
+  Condition: the intent is not yet settled and no nodeit took an authorization
              (if one did: 409 payment_in_progress, not cancelled)
   Effect:    queued authorizations are discarded
 
 cancelled | expired → settled   (exceptional: the chain has the last word)
   Triggered: the on-chain IntentSettled event is confirmed
-  Condition: the payment was already on its way to the chain (a claim released as stuck)
+  Condition: the payment was already on its way to the chain (an authorization taken and released as stuck)
 ```
 
 There is no `failed` state: a payment that does not go through leaves the intent `created`.
@@ -867,13 +908,13 @@ For a $100.00 USDC payment:
 ```
 Payer authorizes:  $100.000000 USDC via ERC-3009 ReceiveWithAuthorization signature
 
-On-chain:          SettlementHub.sol pulls the payer's USDC and splits it
-                   atomically in a single transaction (no intermediary
+On-chain:          SettlementHub.sol pulls the payer's USDC and, in the same
+                   transaction, pays the merchant (no intermediary
                    payment_address — the USDC goes straight from payer to merchant)
 
-Merchant receives: $98.500000 USDC
-Node receives:     $01.050000 USDC (70% of 1.5% fee)
-Treasury receives: $00.450000 USDC (30% of 1.5% fee)
+Merchant receives: $98.500000 USDC   at once
+Node receives:     $01.050000 USDC   credited; collected with claim() (70% of 1.5% fee)
+Treasury receives: $00.450000 USDC   credited; claimFor(treasury) (30% of 1.5% fee)
 ```
 
 For a $0.001 USDC x402 micropayment (illustrative — this is BELOW the economic
@@ -929,15 +970,15 @@ Treasury allocation is decided by the Foundation; the balance is publicly visibl
 **Malicious node operator**
 
 *Threat:* Settle an intent and divert the funds to an address other than the merchant's.
-*Mitigation:* The split is executed by `SettlementHub.sol` in an atomic on-chain transaction — the nodeit does not control the destination of the funds. The merchant address is fixed in the intent and **authenticated**: the contract only registers intents signed by `intentSigner` (§4.3), so the nodeit submitting the transaction cannot swap in its own. And the payer's ERC-3009 authorization is only valid for the intent whose identifier is its nonce, so it cannot be applied to someone else's intent either. The nodeit only submits the transaction and pays the gas; it cannot touch or redirect the USDC.
+*Mitigation:* The split is executed by `SettlementHub.sol` on-chain — the nodeit does not control the destination of the funds. The merchant address is fixed in the intent and **authenticated**: the contract only registers intents signed by `intentSigner` (§4.3), so the nodeit submitting the transaction cannot swap in its own. And the payer's ERC-3009 authorization is only valid for the intent whose identifier is its nonce — which carries the merchant — so it cannot be applied to someone else's intent either. The nodeit only submits the transaction and pays the gas; it cannot touch or redirect the USDC.
 
 *Threat:* Accept work and then go offline without settling the intent.
 *Mitigation:* There is nothing to capture: until the intent settles, the USDC stays in the payer's wallet. A nodeit that does not settle **penalizes itself** — it does not earn its 1.05% — and the intent expires at `expires_at`; anyone can close it with `cancelExpired()` and the merchant issues a new one. The 7-day withdrawal timelock additionally makes the nodeit's exit visible on-chain a week in advance (§4.2).
 
 **`intentSigner` key compromise**
 
-*Threat:* Whoever controls that key can sign registrations binding a new intent to any merchant they choose.
-*Mitigation:* This is a **bounded and declared** risk, not an eliminated one (ADR-004): the platform is authoritative over the intent→merchant binding, and that is now explicit in the contract instead of an implicit fact of routing. What the key **cannot** do is move funds on its own: it cannot redirect already-registered intents (`registerIntent` rejects duplicate identifiers) nor touch settled ones. The blast radius depends on how the signer was deployed: with a **plain wallet** compromising **one** key is enough, and the only response is to **pause and redeploy** the hub; with an **ERC-1271 multisig** — the recommended production configuration (§4.3) — the attacker has to compromise the **threshold** of keys, and the response is to remove the affected signer inside the multisig, without touching the contract and without the immutable address changing. The address cannot be rotated in either case; the pause remains the emergency lever in both.
+*Threat:* Whoever controls the hot key that signs registrations can register new intents with whatever data they want.
+*Mitigation:* This is a **bounded and declared** risk, not an eliminated one (ADR-004, ADR-009 §3-§4): the platform is authoritative over which intents exist. What the key **cannot** do: bind a payment the payer already signed to another merchant (the `intentId`, which is its nonce, carries the merchant), redirect already-registered intents (`registerIntent` skips duplicates), touch settled ones, or move funds. What it could do — register intents with another operator — only diverts the 1.05% fee, never the payment. And the response needs no redeploy: `intentSigner` is the `IntentSignerGate` (§4.4), whose cold admin retires the key instantly with `setSigner` — or puts the brake on, `setSigner(0)` — without touching the hub. Whoever steals the hot key cannot rotate it or touch the admin. The platform's watchdog warns if the gate stops accepting the API's key.
 
 **Sybil attack (many fake nodes)**
 
@@ -962,7 +1003,7 @@ Treasury allocation is decided by the Foundation; the balance is publicly visibl
 **Double-spend**
 
 *Threat:* The payer signs an authorization and then attempts a chain reorganization to reverse the settlement.
-*Mitigation:* Settlement is an atomic `SettlementHub.sol` transaction; the intent only moves to `settled` when the `IntentSettled` event is confirmed on-chain. Base's L2 architecture makes reorganizations past 1 block extremely unlikely. For high-value transactions, merchants can wait for additional confirmations before fulfilling.
+*Mitigation:* Settlement is a single `SettlementHub.sol` transaction; the intent only moves to `settled` when the `IntentSettled` event is confirmed on-chain. Base's L2 architecture makes reorganizations past 1 block extremely unlikely. For high-value transactions, merchants can wait for additional confirmations before fulfilling.
 
 ### 12.2 What is explicitly out of scope
 
@@ -975,16 +1016,17 @@ Treasury allocation is decided by the Foundation; the balance is publicly visibl
 
 These invariants must be preserved across all contract upgrades (deployments) and can be used by auditors to verify correctness:
 
-1. `StakeManager`: **exact USDC conservation** — the contract's balance always equals the sum of every operator's `staked + pendingWithdrawal`, and what was deposited equals that sum plus what was withdrawn. With the economic penalty gone (ADR-004), the stake has no possible leak to the treasury or to any third party: the invariant goes from an inequality to an **exact equality**
-2. `StakeManager`: a withdrawal cannot be executed before `unlockAt` (timelock is strictly enforced)
-3. `NodeRegistry.getActiveNodes()` never contains an address with `active = false`
+1. `StakeManager`: **exact USDC conservation** — `totalHeld` is exactly the sum of every operator's `staked + pendingWithdrawal`, what was deposited equals that sum plus what was withdrawn, and the contract's balance is that sum plus what arrived by mistake and has not been swept yet. With the economic penalty gone (ADR-004), the stake has no possible leak to the treasury or to any third party: only surplus ever reaches the treasury
+2. `StakeManager`: a withdrawal cannot be executed before `unlockAt` (timelock is strictly enforced), and the pause does not prevent executing one whose delay has passed
+3. `NodeRegistry.getActiveNodes()` never contains an address with `active = false`, and `minStake` only changes by applying a proposal that waited `MIN_STAKE_DELAY`
 4. `SettlementHub`: no intent is registered without a valid `intentSigner` signature, and an `intentId` cannot be registered twice
 5. `SettlementHub`: an ERC-3009 authorization can only be applied to the intent whose identifier is its nonce, and each intent settles at most once
-6. `SettlementHub`: the split adds up exactly to the settled amount (98.5% / 1.05% / 0.45%) and the contract holds no USDC between transactions
+6. `SettlementHub`: each party receives exactly its share of the settled amount (98.5% paid / 1.05% / 0.45% credited); `totalAccrued` is the sum of what is credited, and the hub's balance is never less than `totalAccrued`
+7. `Pausable`: the guardian is never zero and only changes when the proposed one accepts
 
 ### 12.4 Audit requirements
 
-All three contracts (`NodeRegistry`, `StakeManager`, and `SettlementHub`, plus the shared `Pausable` base) require full security audits before Base mainnet deployment:
+All four contracts (`NodeRegistry`, `StakeManager`, `SettlementHub` and `IntentSignerGate`, plus the shared `Pausable` base) require full security audits before Base mainnet deployment:
 - Static analysis (Slither, Mythril)
 - Manual review by at least two independent security researchers
 - Fuzzing with forge test --fuzz-runs 10000
@@ -1061,7 +1103,7 @@ that is exactly what it is.
 Metrics to track:
 - `uptime_pct` — 30-day rolling uptime percentage
 - `avg_settlement_ms` — rolling average settlement time
-- `intents_claimed` — ERC-3009 authorizations claimed from the API queue
+- `intents_claimed` — ERC-3009 authorizations taken from the API queue
 - `intents_settled` — intents successfully confirmed
 - `authorizations_rejected` — authorizations that could not be settled (the intent stays `created`)
 - `stake_balance` — current USDC stake (alert if approaching minimum)
@@ -1150,7 +1192,7 @@ payments you need none of this — install an SDK.
 
 ### 15.2 Testnet deployment (Base Sepolia)
 
-The reference Base Sepolia deploy is already live (2026-04-18) — the canonical addresses are in `contracts/deployments/sepolia.json`. The steps below are for operators who want their own independent Sepolia deploy; to just point a node/API at the existing deploy, read that JSON directly.
+The reference Base Sepolia deploy is already live — the canonical addresses are in `contracts/deployments/sepolia.json`. The steps below are for operators who want their own independent Sepolia deploy; to just point a node/API at the existing deploy, read that JSON directly.
 
 ```bash
 # 1. Get testnet USDC
@@ -1159,10 +1201,11 @@ The reference Base Sepolia deploy is already live (2026-04-18) — the canonical
 # 2. Configure deployment .env
 DEPLOYER_PRIVATE_KEY=0x...
 USDC_ADDRESS=0x036CbD53842c5426634e7929541eC2318f3dCF7e  # Base Sepolia USDC
-TREASURY_ADDRESS=0x...         # receives the 0.45%; wallet distinct from the deployer
-GUARDIAN_ADDRESS=0x...         # pause and setMinStake; distinct from deployer and treasury
-INTENT_SIGNER_ADDRESS=0x...    # signs intent registrations (ADR-004); immutable after deploy
-MIN_STAKE_USDC_UNITS=40000000  # optional — defaults to 40 USDC
+TREASURY_ADDRESS=0x...              # collects the 0.45%; immutable; distinct from the deployer
+GUARDIAN_ADDRESS=0x...              # pause and minStake (with notice); distinct from deployer and treasury
+INTENT_SIGNER_ADMIN_ADDRESS=0x...   # IntentSignerGate admin: the only one that changes the key
+INTENT_SIGNER_KEY_ADDRESS=0x...     # hot key the API signs registrations with
+MIN_STAKE_USDC_UNITS=40000000       # optional — defaults to 40 USDC
 BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
 
 # 3. Deploy contracts
@@ -1176,6 +1219,7 @@ forge script script/Deploy.s.sol \
 NODE_REGISTRY_ADDRESS=0x...
 STAKE_MANAGER_ADDRESS=0x...
 SETTLEMENT_HUB_ADDRESS=0x...
+# (nobody configures the IntentSignerGate: the API reads it from the hub, intentSigner())
 
 # 5. Start API and Node with testnet config
 ```
@@ -1259,16 +1303,18 @@ These are the properties that CoatiPay guarantees to all participants. They must
 
 ### For merchants
 
-1. Funds received in the merchant wallet are yours — no party can recall or freeze them after settlement
-2. The address that collects the 98.5% is authenticated: `SettlementHub` only registers an intent if it comes signed by `intentSigner`, so the nodeit submitting the transaction cannot swap in its own
+1. Funds received in the merchant wallet are yours — no protocol participant can recall or freeze them after settlement. You are paid in the same transaction as the payment: nothing is held in the hub
+2. The address that collects the 98.5% is authenticated: `SettlementHub` only registers an intent if it comes signed by `intentSigner`, so the nodeit submitting the transaction cannot swap in its own; and the `intentId` the payer signs carries your address, so their signature cannot pay anyone else
 3. Your API key is never transmitted in logs or error messages — only the key prefix is stored for identification
 4. Webhook signatures are computed over the exact payload — any modification invalidates the signature
 
 ### For node operators
 
 1. Your stake is **not confiscable**: `StakeManager` has no function that moves it to a third party — it enters from your address and can only leave towards your address
-2. Withdrawal timelock is exactly 7 days — this cannot be extended or shortened by any party
-3. Your routing capacity is respected — if you return `capacity < 0.1`, the routing engine will not assign you new intents
+2. Withdrawal timelock is exactly 7 days — this cannot be extended or shortened by any party, and the pause does not stop you from withdrawing
+3. Your fee is credited in the hub and you collect it with `claim()` whenever you want, also with the hub paused; it can only leave towards your address. If your address is blocked by the USDC issuer, your payments keep settling and what is yours waits
+4. `minStake` does not change by surprise: any change is proposed on-chain and waits 7 days before it can be applied
+5. Your routing capacity is respected — if you return `capacity < 0.1`, the routing engine will not assign you new intents
 
 ### For payers
 
@@ -1277,14 +1323,15 @@ These are the properties that CoatiPay guarantees to all participants. They must
 
 ### For the protocol
 
-1. There is no admin key that can move funds, upgrade, or rewrite the state of the deployed contracts. The privileged actions are the **emergency pause** (the `Pausable` base), raising `minStake` (never lowering it) and transferring the role, all held by the guardian: on mainnet, a multisig —3-of-5 planned—; today, on testnet, a single wallet. None can move funds or change the rules; the pause does stop, while it lasts, payments not yet settled and stake withdrawals
+1. There is no admin key that can move funds, upgrade, or rewrite the state of the deployed contracts. The guardian's privileged actions are the **emergency pause** (the `Pausable` base), proposing a new `minStake` (with 7 days' notice) and transferring the role in two steps: on mainnet, a multisig —3-of-5 planned—; today, on testnet, a single wallet. None can move funds or change the rules; the pause stops, while it lasts, payments not yet registered, but **holds no one's money**: stake withdrawals and fee claims keep working
 2. The fee split (70/30 node/treasury, 150 bps total — see ADR-002, revised in ADR-005) is encoded in the protocol (`SettlementHub.sol` constants) and cannot be changed without a new deployment
-3. The minimum stake (`minStake`) is a state variable adjustable by the guardian via `NodeRegistry.setMinStake()`, but the contract **rejects decreases** — increase-only. This lets the network raise the anti-Sybil floor as it matures (initial value: 100 USDC on mainnet, 40 USDC on Sepolia testnet) without invalidating already-registered operators.
+3. The minimum stake (`minStake`) only changes with notice: the guardian proposes it, anyone applies it after `MIN_STAKE_DELAY` (7 days), and it can never be zero. It can go up — the network raises the anti-Sybil floor as it matures — or down — a mistake or a stolen key is undone by proposing the previous value — (initial value: 100 USDC on mainnet, 40 USDC on Sepolia testnet).
 4. All node registrations are permissionless — no whitelist committee can block a node from joining
-5. There is one centralization, and it is declared: `intentSigner`, the address whose signature authorizes registering intents (ADR-004). It binds each intent to its merchant and **cannot move funds** — it can neither redirect already-registered intents nor touch settled ones. The address is immutable on purpose, so not even the guardian can rotate it; but it can be an ERC-1271 multisig, and **in production it must be**: the signers then rotate inside it and a compromise is answered by removing one key, not by redeploying (with a plain wallet, the only response is still to pause and redeploy)
+5. There is one centralization, and it is declared: `intentSigner`, the address whose signature authorizes registering intents (ADR-004). It decides which intents exist and **cannot move funds** — it can neither bind an already-signed payment to another merchant, nor redirect already-registered intents, nor touch settled ones. The address is immutable on purpose, so not even the guardian can change it; it is the `IntentSignerGate` (ADR-009 §4), whose admin — a cold multisig on mainnet — rotates the hot signing key, or retires it, without redeploying the hub
+6. A part in trouble does not stop the others (ADR-009): a nodeit or the treasury on the USDC issuer's blacklist stops no payment, and an invalid registration does not sink the batch it is in
 
 ---
 
-*This document reflects the state of CoatiPay at v0.1. It is updated with every significant architectural decision.*
+*This document reflects the state of CoatiPay at v0.2. It is updated with every significant architectural decision.*
 
 *For questions, open a GitHub discussion. For security issues, email security@coatipay.com.*

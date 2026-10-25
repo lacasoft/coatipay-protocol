@@ -62,7 +62,7 @@ The window to build community-owned infrastructure before institutional standard
 - [x] **Deploy contracts to Base Sepolia** — completed 2026-04-18 (see `packages/contracts/deployments/sepolia.json`)
 - [x] PostgreSQL persistence in API (`packages/api/src/lib/db.ts` + `repository.ts`)
 - [x] HMAC signing in nodeit daemon (`packages/node/src/lib/hmac.ts`, 60s window)
-- [x] Gasless ERC-3009 settlement: the payer signs a `ReceiveWithAuthorization` authorization and `SettlementHub.sol` pulls the USDC and splits it atomically on-chain (98.5% merchant / 1.05% nodeit / 0.45% treasury)
+- [x] Gasless ERC-3009 settlement: the payer signs a `ReceiveWithAuthorization` authorization and `SettlementHub.sol` pulls the USDC, pays the merchant in the same transaction and credits the fees (98.5% merchant / 1.05% nodeit / 0.45% treasury)
 - [x] x402 on-chain payment verification + replay protection (atomic Redis `SET NX` + tx_hash in DB)
 - [x] Webhook delivery with Redis-backed retry queue
 - _Note:_ "Routing engine reading nodeits from `NodeRegistry.sol` via viem" was moved to Phase 2 — with only one nodeit registered, on-chain discovery yields the same result as the `BOOTSTRAP_NODE_ENDPOINT` fallback. See Phase 2 > Technical Milestones.
@@ -179,7 +179,7 @@ These are public, verifiable, and non-negotiable. No version inflation.
 
 **A protocol token.** There will never be a RELAY token. Nodeit operators earn USDC. Contributors earn reputation and voice. Introducing a speculative token would corrupt the incentive structure and attract the wrong community.
 
-**Upgradeability in the core contracts.** The three contracts are non-upgradeable by design. Any protocol change that requires contract modification goes through a full audit cycle and a new deployment — not an upgrade. This is a feature, not a limitation.
+**Upgradeability in the core contracts.** The core contracts are non-upgradeable by design. Any protocol change that requires contract modification goes through a full audit cycle and a new deployment — not an upgrade. This is a feature, not a limitation.
 
 **KYC/AML compliance layer.** CoatiPay does not process identity. That is the merchant's responsibility under their jurisdiction. CoatiPay provides payment routing; compliance is upstream.
 
