@@ -1,6 +1,6 @@
 # ADR-009 — Una parte que falla no detiene a las demás
 
-> **Status**: 🟢 **Aceptado** (FECHA_DESPLIEGUE: desplegado en Base Sepolia)
+> **Status**: 🟢 **Aceptado** (2026-10-25: desplegado en Base Sepolia)
 > **Date**: 2026-10-22
 > **Supersede**: ADR-001 en el reparto en el momento a operador y tesorería
 > (§ split atómico); ADR-004 en la recomendación de que `intentSigner` sea un

@@ -16,10 +16,10 @@ separadas.
 
 | Contrato | Dirección |
 |---|---|
-| `SettlementHub` | `PENDIENTE_HUB` |
-| `NodeRegistry` | `PENDIENTE_REGISTRY` |
-| `StakeManager` | `PENDIENTE_STAKE` |
-| `IntentSignerGate` | `PENDIENTE_GATE` |
+| `SettlementHub` | [`0x30CD3cc1bf5539bb627207AF19DF0BF0c11d02A0`](https://sepolia.basescan.org/address/0x30CD3cc1bf5539bb627207AF19DF0BF0c11d02A0#code) |
+| `NodeRegistry` | [`0x98B27eBB9FA8b2433B7ea1A89aBFa0FA1bE97568`](https://sepolia.basescan.org/address/0x98B27eBB9FA8b2433B7ea1A89aBFa0FA1bE97568#code) |
+| `StakeManager` | [`0xE77399c17aC18a08F44De792F91423742183a00A`](https://sepolia.basescan.org/address/0xE77399c17aC18a08F44De792F91423742183a00A#code) |
+| `IntentSignerGate` | [`0x1Baa57B09959642d09394B9AB2A22c24486AD2e2`](https://sepolia.basescan.org/address/0x1Baa57B09959642d09394B9AB2A22c24486AD2e2#code) |
 
 Es el diseño de [ADR-009](audits/adr/009-una-parte-que-falla-no-detiene-a-las-demas.md):
 **una parte que falla no detiene a las demás**.
@@ -31,7 +31,7 @@ Es el diseño de [ADR-009](audits/adr/009-una-parte-que-falla-no-detiene-a-las-d
 | Treasury | `0x05CD…8261` | Cobra el 30% de la comisión (**inmutable**) |
 | Guardian | `0xbB51…7Ddf` | Pausa de emergencia y `minStake` con 7 días de aviso (rotable en dos pasos) |
 | Admin del gate | `0xbB51…7Ddf` | El único que cambia o retira la clave que firma los registros |
-| Clave del gate | `0xc6Ff…8cdB` | La API firma con ella cada registro de intent (rotable sin redesplegar) |
+| Clave del gate | `0xEa1d…3ee9` | La API firma con ella cada registro de intent (rotable sin redesplegar) |
 | Nodeit bootstrap | `0xf73e…5da4` | Deposita stake y opera el daemon |
 
 `minStake` inicial: **40 USDC** en testnet (100 USDC en mainnet). El guardian
