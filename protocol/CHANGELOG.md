@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.2.0 — sin publicar
+## 0.2.1 — sin publicar
+
+### Added
+
+- **`PAYMENT_INTENT_ID_PATTERN`** and **`isPaymentIntentId(id)`**: the shape of
+  a payment id the API returns (`pi_` followed by ASCII letters, digits, `_` or
+  `-`, nothing else). The SDKs check it before putting an id into a request
+  path.
+- Shared vector **`ids.json`**: accepted and rejected ids, the same in the
+  three SDKs. Includes `pi_abc\n`: Python's `re.match` and PHP's `preg_match`
+  without `D` accept a trailing newline at `$`.
+
+## 0.2.0 — 2026-10-25
 
 For the contracts of ADR-009 («Una parte que falla no detiene a las demás»).
 **Breaking**: the on-chain id of a payment, and so the nonce the payer signs,
