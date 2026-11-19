@@ -476,6 +476,50 @@ contract NodeRegistryTest is Test {
         registry.activate();
     }
 
+    // ── deactivate() dos veces (reporte de noviembre de 2026) ──
+
+    function test_Deactivate_Revert_NotActive() public {
+        _registerOperator(operator, MIN_STAKE);
+
+        vm.startPrank(operator);
+        registry.deactivate();
+        vm.expectRevert(NodeRegistry.NotActive.selector);
+        registry.deactivate();
+        vm.stopPrank();
+    }
+
+    /// El ataque del reporte: la víctima ocupa la posición 0 de la lista; el
+    /// atacante se registra, se desactiva y vuelve a llamar. Antes, esa segunda
+    /// llamada sacaba a la víctima de la lista aunque siguiera `active`.
+    function test_Deactivate_Twice_DoesNotRemoveAnotherNode() public {
+        _registerOperator(operator2, MIN_STAKE); // la víctima, posición 0
+        _registerOperator(operator, MIN_STAKE);
+
+        vm.startPrank(operator);
+        registry.deactivate();
+        vm.expectRevert(NodeRegistry.NotActive.selector);
+        registry.deactivate();
+        vm.stopPrank();
+
+        address[] memory active = registry.getActiveNodes();
+        assertEq(active.length, 1);
+        assertEq(active[0], operator2);
+        assertTrue(registry.isActive(operator2));
+
+        // La víctima puede salir y volver como siempre.
+        vm.startPrank(operator2);
+        registry.deactivate();
+        assertEq(registry.activeNodeCount(), 0);
+        registry.activate();
+        vm.stopPrank();
+        assertEq(registry.getActiveNodes()[0], operator2);
+
+        // Y el atacante, reactivarse: la guarda no le cierra nada legítimo.
+        vm.prank(operator);
+        registry.activate();
+        assertEq(registry.activeNodeCount(), 2);
+    }
+
     // ── Lectura por páginas (OCT-13) ──────────────────────────
 
     function test_GetActiveNodesPage() public {

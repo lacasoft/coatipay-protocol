@@ -62,6 +62,7 @@ contract NodeRegistry is Pausable, ReentrancyGuard {
 
     error AlreadyRegistered();
     error AlreadyActive();
+    error NotActive();
     error NotRegistered();
     error StakeTooLow(uint256 staked, uint256 minimum);
     error EmptyEndpoint();
@@ -122,6 +123,12 @@ contract NodeRegistry is Pausable, ReentrancyGuard {
     /// @notice Deactivate the node. Does not release stake.
     function deactivate() external whenNotPaused {
         if (_nodes[msg.sender].registeredAt == 0) revert NotRegistered();
+        // La pareja de `AlreadyActive` en activate(). Sin ella, un nodo ya
+        // inactivo podía volver a llamar: su `_activeIndex`, ya borrado, vale
+        // 0, y `_removeFromActive` sacaba de la lista al nodo de la posición 0,
+        // que seguía `active` y ya no podía ni reactivarse ni desactivarse
+        // (reporte de noviembre de 2026).
+        if (!_nodes[msg.sender].active) revert NotActive();
         _nodes[msg.sender].active = false;
         _removeFromActive(msg.sender);
         emit NodeDeactivated(msg.sender);

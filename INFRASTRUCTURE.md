@@ -202,6 +202,7 @@ uint256 public minStakeEffectiveAt;    // cuándo se puede aplicar; 0 = sin prop
 
 `deactivate()`
 - Remueve al operator de `_activeOperators`
+- Revierte con `NotActive` si ya estaba inactivo, igual que `activate()` con `AlreadyActive` si ya estaba activo
 - NO libera el stake — debe pasar por StakeManager
 - Emite `NodeDeactivated`
 
@@ -223,6 +224,7 @@ MinStakeChanged(uint256 previous, uint256 newMin)
 
 **Invariantes de seguridad:**
 - Una dirección no puede registrarse dos veces (verificado vía `registeredAt != 0`)
+- Un operator está en `_activeOperators` si y solo si está activo, y una sola vez
 - El stake lo retiene StakeManager, no NodeRegistry — el registry no tiene balance de tokens
 - `minStake` solo cambia aplicando una propuesta que esperó `MIN_STAKE_DELAY`, y nunca es cero
 
