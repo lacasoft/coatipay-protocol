@@ -32,6 +32,22 @@ export { REGISTER_INTENT_TYPE, SETTLEMENT_HUB_DOMAIN_NAME, SETTLEMENT_HUB_DOMAIN
 
 const BYTES32 = /^0x[0-9a-fA-F]{64}$/
 
+/// La forma del id de un cobro que da la API: `pi_` seguido de letras ASCII,
+/// dígitos, `_` o `-`, y nada más. Los SDK la comprueban antes de poner el id
+/// en una ruta (`/payment_intents/<id>/…`): con cualquier otro carácter la
+/// petición podría llegar a otra ruta de la API con la clave del comercio.
+///
+/// Es la forma entera, sin salto de línea al final. En JS `$` es el final del
+/// texto; en Python (`re.match`) y en PHP (`preg_match` sin `D`) `$` acepta
+/// además un `\n` final: allí se usa `re.fullmatch` o el modificador `D`
+/// (vectores compartidos, `ids.json`).
+export const PAYMENT_INTENT_ID_PATTERN = /^pi_[A-Za-z0-9_-]+$/
+
+/// ¿Tiene `id` la forma de un id de cobro (`PAYMENT_INTENT_ID_PATTERN`)?
+export function isPaymentIntentId(id: unknown): id is string {
+  return typeof id === 'string' && PAYMENT_INTENT_ID_PATTERN.test(id)
+}
+
 /// La referencia de un cobro: keccak256 de los bytes UTF-8 de su id. Nunca del
 /// id leído como hexadecimal (`'0xdeadbeef'` se hashea como texto).
 ///

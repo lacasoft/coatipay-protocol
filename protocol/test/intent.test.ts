@@ -15,6 +15,8 @@ import { describe, expect, it } from 'vitest'
 import {
   intentIdOf,
   intentRef,
+  isPaymentIntentId,
+  PAYMENT_INTENT_ID_PATTERN,
   REGISTER_INTENT_TYPE,
   REGISTER_INTENT_TYPES,
   type RegisterIntentMessage,
@@ -23,6 +25,23 @@ import {
 
 const vectores = JSON.parse(readFileSync(resolve(__dirname, '../vectors/nonce.json'), 'utf8'))
 const COMERCIO = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
+const ids = JSON.parse(readFileSync(resolve(__dirname, '../vectors/ids.json'), 'utf8'))
+
+describe('isPaymentIntentId (forma del id de cobro)', () => {
+  it('acepta y rechaza lo mismo que el vector compartido', () => {
+    expect(ids.patron).toBe(PAYMENT_INTENT_ID_PATTERN.source)
+    for (const id of ids.aceptados) expect(isPaymentIntentId(id), id).toBe(true)
+    for (const c of ids.rechazados) expect(isPaymentIntentId(c.id), c.motivo).toBe(false)
+  })
+
+  it('acepta los ids que da la API (pi_ + nanoid de 24) y que codificar no los cambia', () => {
+    for (const id of ids.aceptados) expect(encodeURIComponent(id)).toBe(id)
+  })
+
+  it('rechaza lo que no es texto', () => {
+    for (const v of [undefined, null, 1, {}, ['pi_a']]) expect(isPaymentIntentId(v)).toBe(false)
+  })
+})
 
 describe('intentIdOf (ADR-009 §3)', () => {
   it('reproduces every shared vector', () => {
