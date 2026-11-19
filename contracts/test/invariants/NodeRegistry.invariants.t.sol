@@ -81,6 +81,18 @@ contract NodeRegistryInvariants is Test {
         }
     }
 
+    // ── Invariant: redundant calls revert ────────────────────
+    //
+    // deactivate() de un nodo inactivo revierte con NotActive y activate() de
+    // uno activo con AlreadyActive: ninguna de las dos toca la lista. Sin la
+    // guarda de deactivate(), la segunda llamada sacaba al nodo de la posición
+    // 0 (reporte de noviembre de 2026); invariant_activeSetMatchesIsActive lo
+    // ve en la lista, y este, en la llamada misma.
+
+    function invariant_redundantCallsRevert() public view {
+        assertFalse(handler.ghost_redundantCallSucceeded(), "deactivate/activate sobrante no revirtio");
+    }
+
     // ── Invariant: registration is permanent ─────────────────
     //
     // SCOPE.md §5/NodeRegistry invariant 1:

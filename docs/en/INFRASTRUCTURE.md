@@ -202,6 +202,7 @@ uint256 public minStakeEffectiveAt;    // when it can be applied; 0 = no proposa
 
 `deactivate()`
 - Removes the operator from `_activeOperators`
+- Reverts with `NotActive` if it was already inactive, just as `activate()` reverts with `AlreadyActive` if it was already active
 - Does NOT release the stake — that goes through StakeManager
 - Emits `NodeDeactivated`
 
@@ -223,6 +224,7 @@ MinStakeChanged(uint256 previous, uint256 newMin)
 
 **Security invariants:**
 - An address cannot register twice (checked via `registeredAt != 0`)
+- An operator is in `_activeOperators` if and only if it is active, and only once
 - The stake is held by StakeManager, not NodeRegistry — the registry has no token balance
 - `minStake` only changes by applying a proposal that waited `MIN_STAKE_DELAY`, and is never zero
 

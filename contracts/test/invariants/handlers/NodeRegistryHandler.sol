@@ -21,6 +21,10 @@ contract NodeRegistryHandler is Test {
     /// @notice Se pone a true si una propuesta se aplica antes de tiempo.
     bool public ghost_appliedEarly;
 
+    /// @notice Se pone a true si `deactivate()` de un nodo inactivo o
+    ///         `activate()` de uno activo no revierte.
+    bool public ghost_redundantCallSucceeded;
+
     /// @notice Cumulative count of state-mutating calls.
     uint256 public ghost_calls;
 
@@ -78,23 +82,32 @@ contract NodeRegistryHandler is Test {
         ghost_calls++;
     }
 
+    // deactivate() y activate() se llaman también cuando sobran (un nodo ya
+    // inactivo, uno ya activo). Hasta noviembre de 2026 el handler se saltaba
+    // esos casos, y por eso el fuzzer nunca llegó a desactivar dos veces, que
+    // sacaba a otro nodo de la lista (reporte de noviembre de 2026).
+
     function deactivate(uint256 actorSeed) external {
         address actor = _pickActor(actorSeed);
         if (registry.getNode(actor).registeredAt == 0) return;
-        if (!registry.getNode(actor).active) return;
+        bool wasActive = registry.getNode(actor).active;
 
         vm.prank(actor);
-        registry.deactivate();
+        try registry.deactivate() {
+            if (!wasActive) ghost_redundantCallSucceeded = true;
+        } catch {}
         ghost_calls++;
     }
 
     function activate(uint256 actorSeed) external {
         address actor = _pickActor(actorSeed);
         if (registry.getNode(actor).registeredAt == 0) return;
-        if (registry.getNode(actor).active) return; // AlreadyActive would revert
+        bool wasActive = registry.getNode(actor).active;
 
         vm.prank(actor);
-        registry.activate();
+        try registry.activate() {
+            if (wasActive) ghost_redundantCallSucceeded = true;
+        } catch {}
         ghost_calls++;
     }
 
