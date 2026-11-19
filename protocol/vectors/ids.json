@@ -1,0 +1,81 @@
+{
+  "formato": 2,
+  "descripcion": "La forma del id de un cobro (pi_…) que los SDK comprueban antes de ponerlo en una ruta (/payment_intents/<id>, …/cancel, …/authorize). Con otra forma lanzan un error sin hacer la petición. `patron` es la expresión entera: sin salto de línea al final (en Python usa re.fullmatch; en PHP, el modificador D). Los aceptados se codifican como componente de ruta, que los deja igual.",
+  "patron": "^pi_[A-Za-z0-9_-]+$",
+  "aceptados": [
+    "pi_V1StGXR8_Z5jdHi6B-myT0k1",
+    "pi_a",
+    "pi_-_-",
+    "pi_0123456789ABCDEFGHIJabcdefghij"
+  ],
+  "rechazados": [
+    {
+      "id": "",
+      "motivo": "vacío"
+    },
+    {
+      "id": "pi_",
+      "motivo": "nada después del prefijo"
+    },
+    {
+      "id": "PI_abc",
+      "motivo": "el prefijo va en minúsculas"
+    },
+    {
+      "id": "whk_abc",
+      "motivo": "no es un id de cobro"
+    },
+    {
+      "id": "../webhooks",
+      "motivo": "cambiaría la ruta"
+    },
+    {
+      "id": "pi_abc/cancel",
+      "motivo": "`/` cambiaría la ruta"
+    },
+    {
+      "id": "pi_abc/../../webhooks",
+      "motivo": "`/` y `..` cambiarían la ruta"
+    },
+    {
+      "id": "pi_abc?limit=1",
+      "motivo": "`?` empezaría una consulta"
+    },
+    {
+      "id": "pi_abc#x",
+      "motivo": "`#` empezaría un fragmento"
+    },
+    {
+      "id": "pi_abc%2F",
+      "motivo": "`%` es un escape"
+    },
+    {
+      "id": "pi_abc.def",
+      "motivo": "`.` no está en la forma"
+    },
+    {
+      "id": " pi_abc",
+      "motivo": "espacio delante"
+    },
+    {
+      "id": "pi_abc ",
+      "motivo": "espacio detrás"
+    },
+    {
+      "id": "pi_abc\n",
+      "motivo": "salto de línea final: el `$` de Python (re.match) y PHP (sin D) lo acepta"
+    },
+    {
+      "id": "pi_abc\r\nX-Otra: 1",
+      "motivo": "salto de línea en medio"
+    },
+    {
+      "id": "pi_ñandú",
+      "motivo": "no ASCII"
+    },
+    {
+      "id": "0xabababababababababababababababababababababababababababababababab",
+      "motivo": "es un id on-chain, no el id del cobro"
+    }
+  ]
+}

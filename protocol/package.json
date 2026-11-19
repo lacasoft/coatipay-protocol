@@ -1,6 +1,6 @@
 {
   "name": "@lacasoft/coatipay-protocol",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Shared types, interfaces, constants, and chain helpers for the CoatiPay protocol",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

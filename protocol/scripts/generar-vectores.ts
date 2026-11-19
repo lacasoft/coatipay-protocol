@@ -27,7 +27,7 @@ import {
   type SupportedChain,
   usdcDomain,
 } from '../src/erc3009'
-import { intentIdOf, intentRef } from '../src/intent'
+import { intentIdOf, intentRef, isPaymentIntentId, PAYMENT_INTENT_ID_PATTERN } from '../src/intent'
 
 export const DIRECTORIO = resolve(__dirname, '../vectors')
 
@@ -76,6 +76,51 @@ function vectoresNonce() {
       },
       { intent_id: 'pi_a', merchant: '0x1234', motivo: 'la cartera no es una dirección' },
     ],
+  }
+}
+
+// ── id de cobro ────────────────────────────────────────────────────
+
+function vectoresIds() {
+  const aceptados = [
+    'pi_V1StGXR8_Z5jdHi6B-myT0k1', // la forma que da la API: pi_ + nanoid(24)
+    'pi_a',
+    'pi_-_-',
+    'pi_0123456789ABCDEFGHIJabcdefghij',
+  ]
+  const rechazados: { id: string; motivo: string }[] = [
+    { id: '', motivo: 'vacío' },
+    { id: 'pi_', motivo: 'nada después del prefijo' },
+    { id: 'PI_abc', motivo: 'el prefijo va en minúsculas' },
+    { id: 'whk_abc', motivo: 'no es un id de cobro' },
+    { id: '../webhooks', motivo: 'cambiaría la ruta' },
+    { id: 'pi_abc/cancel', motivo: '`/` cambiaría la ruta' },
+    { id: 'pi_abc/../../webhooks', motivo: '`/` y `..` cambiarían la ruta' },
+    { id: 'pi_abc?limit=1', motivo: '`?` empezaría una consulta' },
+    { id: 'pi_abc#x', motivo: '`#` empezaría un fragmento' },
+    { id: 'pi_abc%2F', motivo: '`%` es un escape' },
+    { id: 'pi_abc.def', motivo: '`.` no está en la forma' },
+    { id: ' pi_abc', motivo: 'espacio delante' },
+    { id: 'pi_abc ', motivo: 'espacio detrás' },
+    { id: 'pi_abc\n', motivo: 'salto de línea final: el `$` de Python (re.match) y PHP (sin D) lo acepta' },
+    { id: 'pi_abc\r\nX-Otra: 1', motivo: 'salto de línea en medio' },
+    { id: 'pi_ñandú', motivo: 'no ASCII' },
+    { id: `0x${'ab'.repeat(32)}`, motivo: 'es un id on-chain, no el id del cobro' },
+  ]
+  // El generador se comprueba a sí mismo: un caso mal clasificado no se escribe.
+  for (const id of aceptados) {
+    if (!isPaymentIntentId(id)) throw new Error(`aceptado que no cumple la forma: ${JSON.stringify(id)}`)
+  }
+  for (const { id } of rechazados) {
+    if (isPaymentIntentId(id)) throw new Error(`rechazado que cumple la forma: ${JSON.stringify(id)}`)
+  }
+  return {
+    formato: FORMATO,
+    descripcion:
+      'La forma del id de un cobro (pi_…) que los SDK comprueban antes de ponerlo en una ruta (/payment_intents/<id>, …/cancel, …/authorize). Con otra forma lanzan un error sin hacer la petición. `patron` es la expresión entera: sin salto de línea al final (en Python usa re.fullmatch; en PHP, el modificador D). Los aceptados se codifican como componente de ruta, que los deja igual.',
+    patron: PAYMENT_INTENT_ID_PATTERN.source,
+    aceptados,
+    rechazados,
   }
 }
 
@@ -418,6 +463,7 @@ export async function generarVectores(): Promise<Record<string, string>> {
   const json = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`
   return {
     'nonce.json': json(vectoresNonce()),
+    'ids.json': json(vectoresIds()),
     'autorizacion.json': json(await vectoresAutorizacion()),
     'webhooks.json': json(vectoresWebhooks()),
     'errores.json': json(vectoresErrores()),
