@@ -63,6 +63,8 @@ dándonos la oportunidad de corregirlo antes de que le costara dinero a alguien.
 | 2026-08 | El sistema de disputas no validaba nada y castigaba a las 48 h sin votación | Alta | [ibnu76](https://github.com/ibnu76) |
 | 2026-10 | Con la tesorería en la lista negra del emisor de USDC, el hub dejaba de liquidar **todos** los pagos; con un nodeit en la lista, los suyos | Media | [KupiaSec](https://sec.kupia.io) |
 | 2026-11 | El enlace para entrar al panel servía más de una vez: quien lo consiguiera (un correo reenviado, el historial del navegador) entraba hasta que vencía, y el de bienvenida duraba 7 días | Alta | [Royal Nerds](https://royalnerds.com) (Charlotte, NC) |
+| 2026-11 | En el SDK de JS, `x402.middleware()` no detenía en Fastify las peticiones sin pago: la ruta protegida corría igual | Alta | [Royal Nerds](https://royalnerds.com) (Charlotte, NC) |
+| 2026-11 | Los tres SDK ponían el id de un cobro en la ruta sin validarlo ni codificarlo: un id malicioso llevaba la petición, con la clave del comercio, a otra ruta de la API | Media | [Royal Nerds](https://royalnerds.com) (Charlotte, NC) |
 
 Los dos de ibnu76, corregidos en
 [ADR-004](audits/adr/004-auth-binding-y-retirada-de-disputas.md). El primero,
@@ -82,6 +84,8 @@ no detiene los pagos de los demás. El reporte nos llevó a revisar todo el sist
 busca de la misma familia de fallos —una parte que falla y detiene a las demás—,
 y de esa revisión salieron el resto de cambios de ADR-009.
 
-El de Royal Nerds se corrigió en la plataforma el 2026-11-19: el enlace sirve
-una sola vez, se canjea con un botón —así un escáner de correo que lo abre no
-lo gasta— y el de bienvenida dura 24 horas.
+Los tres de Royal Nerds se corrigieron el 2026-11-19. El del enlace, en la
+plataforma: sirve una sola vez, se canjea con un botón —así un escáner de
+correo que lo abre no lo gasta— y el de bienvenida dura 24 horas. Los de los
+SDK, en la 0.2.1 de JS, Python y PHP; en npm, las versiones anteriores del SDK
+de JS están marcadas como obsoletas.
