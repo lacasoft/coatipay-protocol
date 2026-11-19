@@ -17,7 +17,7 @@ separadas.
 | Contrato | Dirección |
 |---|---|
 | `SettlementHub` | [`0x30CD3cc1bf5539bb627207AF19DF0BF0c11d02A0`](https://sepolia.basescan.org/address/0x30CD3cc1bf5539bb627207AF19DF0BF0c11d02A0#code) |
-| `NodeRegistry` | [`0x98B27eBB9FA8b2433B7ea1A89aBFa0FA1bE97568`](https://sepolia.basescan.org/address/0x98B27eBB9FA8b2433B7ea1A89aBFa0FA1bE97568#code) |
+| `NodeRegistry` | [`0xB38699EfEA030Aa5CF1D8F4F47dcD00916C2138b`](https://sepolia.basescan.org/address/0xB38699EfEA030Aa5CF1D8F4F47dcD00916C2138b#code) |
 | `StakeManager` | [`0xE77399c17aC18a08F44De792F91423742183a00A`](https://sepolia.basescan.org/address/0xE77399c17aC18a08F44De792F91423742183a00A#code) |
 | `IntentSignerGate` | [`0x1Baa57B09959642d09394B9AB2A22c24486AD2e2`](https://sepolia.basescan.org/address/0x1Baa57B09959642d09394B9AB2A22c24486AD2e2#code) |
 

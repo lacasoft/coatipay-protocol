@@ -6,7 +6,7 @@
   "deployer": "0x063250650155518BE28989Ec41c597dC1d1eF05C",
   "contracts": {
     "stakeManager": "0xE77399c17aC18a08F44De792F91423742183a00A",
-    "nodeRegistry": "0x98B27eBB9FA8b2433B7ea1A89aBFa0FA1bE97568",
+    "nodeRegistry": "0xB38699EfEA030Aa5CF1D8F4F47dcD00916C2138b",
     "intentSignerGate": "0x1Baa57B09959642d09394B9AB2A22c24486AD2e2",
     "settlementHub": "0x30CD3cc1bf5539bb627207AF19DF0BF0c11d02A0"
   },
@@ -29,7 +29,7 @@
   "verification": {
     "basescan": {
       "stakeManager": "https://sepolia.basescan.org/address/0xE77399c17aC18a08F44De792F91423742183a00A#code",
-      "nodeRegistry": "https://sepolia.basescan.org/address/0x98B27eBB9FA8b2433B7ea1A89aBFa0FA1bE97568#code",
+      "nodeRegistry": "https://sepolia.basescan.org/address/0xB38699EfEA030Aa5CF1D8F4F47dcD00916C2138b#code",
       "intentSignerGate": "https://sepolia.basescan.org/address/0x1Baa57B09959642d09394B9AB2A22c24486AD2e2#code",
       "settlementHub": "https://sepolia.basescan.org/address/0x30CD3cc1bf5539bb627207AF19DF0BF0c11d02A0#code"
     },
@@ -51,7 +51,8 @@
     "ADR-009: registerIntentBatch salta lo invalido (IntentRegistrationSkipped) en vez de revertir el lote; sweepSurplus/sweepToken en el hub y en StakeManager; el hub no acepta ETH.",
     "ADR-009: el intentSigner es un IntentSignerGate (ERC-1271) propio. La API firma con una clave caliente; solo el admin (en Sepolia, el guardian) la cambia o la retira con setSigner, al instante y sin redesplegar el hub. setSigner(0) es el freno de emergencia.",
     "ADR-009: minStake cambia solo con 7 dias de aviso (proposeMinStake / applyMinStake / cancelMinStakeProposal), al alza o a la baja, nunca a cero; NodeRegistry paginado (activeNodeCount, getActiveNodesPage). Guardian y admin del gate se transfieren en dos pasos. La pausa no retiene fondos: los retiros de stake y los claim funcionan en pausa.",
-    "Corte limpio: los CUATRO contratos se desplegaron con Deploy.s.sol (2026-10-25). La API y el nodeit de esta version no arrancan contra un hub anterior (su preflight compara intentIdOf). La clave caliente del gate es nueva y dedicada (sin delegacion EIP-7702)."
+    "Corte limpio: los CUATRO contratos se desplegaron con Deploy.s.sol (2026-10-25). La API y el nodeit de esta version no arrancan contra un hub anterior (su preflight compara intentIdOf). La clave caliente del gate es nueva y dedicada (sin delegacion EIP-7702).",
+    "NodeRegistry REDESPLEGADO SOLO (2026-11-19, bloque 60892283, forge create, no Deploy.s.sol): deactivate() revierte con NotActive si el nodo ya estaba inactivo. Sin esa guarda, una segunda llamada sacaba de la lista de activos al nodo de la posicion 0, que seguia active (reporte de Royal Nerds, noviembre de 2026). Mismo StakeManager, guardian y minStake (40 USDC). SettlementHub, StakeManager e IntentSignerGate no cambian (ninguno referencia al registro) y el stake se queda: el nodeit solo repitio register(). NodeRegistry anterior: 0x98B27eBB9FA8b2433B7ea1A89aBFa0FA1bE97568."
   ],
   "roleSeparation": {
     "note": "Deployer, treasury, guardian y la clave caliente del gate son direcciones distintas; Deploy.s.sol revierte si colisionan, y la clave caliente no puede ser su propio admin. El deployer solo pago gas y no conserva autoridad. El admin del gate es el guardian en Sepolia; en mainnet, Deploy.s.sol exige que treasury, guardian y admin del gate sean multisig de verdad.",
@@ -63,6 +64,14 @@
     "nodeOperator (first bootstrap)": "0xf73e2E5a4493d8a4C28e6f88c14a396C82395da4"
   },
   "previousDeploys": [
+    {
+      "deployedAt": "2026-10-25T04:10:00Z",
+      "deployBlock": 49897658,
+      "reason": "Solo NodeRegistry: reemplazado el 2026-11-19 (bloque 60892283) por uno con la guarda NotActive en deactivate(). El resto del despliegue de ADR-009 sigue vigente. Hasta el reemplazo su lista de activos no llego a romperse (cero eventos NodeDeactivated); desde entonces nada lo lee.",
+      "contracts": {
+        "nodeRegistry": "0x98B27eBB9FA8b2433B7ea1A89aBFa0FA1bE97568"
+      }
+    },
     {
       "deployedAt": "2026-08-31T19:49:43Z",
       "deployBlock": 46218165,

@@ -65,6 +65,7 @@ dándonos la oportunidad de corregirlo antes de que le costara dinero a alguien.
 | 2026-11 | El enlace para entrar al panel servía más de una vez: quien lo consiguiera (un correo reenviado, el historial del navegador) entraba hasta que vencía, y el de bienvenida duraba 7 días | Alta | [Royal Nerds](https://royalnerds.com) (Charlotte, NC) |
 | 2026-11 | En el SDK de JS, `x402.middleware()` no detenía en Fastify las peticiones sin pago: la ruta protegida corría igual | Alta | [Royal Nerds](https://royalnerds.com) (Charlotte, NC) |
 | 2026-11 | Los tres SDK ponían el id de un cobro en la ruta sin validarlo ni codificarlo: un id malicioso llevaba la petición, con la clave del comercio, a otra ruta de la API | Media | [Royal Nerds](https://royalnerds.com) (Charlotte, NC) |
+| 2026-11 | En `NodeRegistry`, llamar dos veces a `deactivate()` sacaba de la lista de nodos activos a otro nodeit, que ya no podía ni reactivarse ni desactivarse | Media | [Royal Nerds](https://royalnerds.com) (Charlotte, NC) |
 
 Los dos de ibnu76, corregidos en
 [ADR-004](audits/adr/004-auth-binding-y-retirada-de-disputas.md). El primero,
@@ -84,8 +85,10 @@ no detiene los pagos de los demás. El reporte nos llevó a revisar todo el sist
 busca de la misma familia de fallos —una parte que falla y detiene a las demás—,
 y de esa revisión salieron el resto de cambios de ADR-009.
 
-Los tres de Royal Nerds se corrigieron el 2026-11-19. El del enlace, en la
+Los cuatro de Royal Nerds se corrigieron el 2026-11-19. El del enlace, en la
 plataforma: sirve una sola vez, se canjea con un botón —así un escáner de
 correo que lo abre no lo gasta— y el de bienvenida dura 24 horas. Los de los
 SDK, en la 0.2.1 de JS, Python y PHP; en npm, las versiones anteriores del SDK
-de JS están marcadas como obsoletas.
+de JS están marcadas como obsoletas. El de `NodeRegistry`, con un registro
+nuevo en el que `deactivate()` revierte si el nodo ya estaba inactivo; el stake
+de los nodeits no se movió.
